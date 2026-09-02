@@ -1,6 +1,6 @@
 # CATMS-Frontend
 
-Frontend client application for **MedSync / CATMS** built with React and Vite.
+The frontend is currently a React/Vite prototype with local mock data. Backend API integration is planned but not yet implemented.
 
 ## Technical Stack
 
