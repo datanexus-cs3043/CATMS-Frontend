@@ -44,6 +44,7 @@ The application will be accessible at `http://localhost:5173`.
 ```bash
 # Build the docker image
 docker build -t catms-frontend .
+
 # Run that image (container)
 docker run -p 5173:80 catms-frontend
 ```
