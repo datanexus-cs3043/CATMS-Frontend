@@ -1,16 +1,53 @@
-# React + Vite
+# CATMS-Frontend
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+The frontend is currently a React/Vite prototype with local mock data. Backend API integration is planned but not yet implemented.
 
-Currently, two official plugins are available:
+## Technical Stack
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+- **Framework**: React 18
+- **Build Tool**: Vite
+- **Styling**: Tailwind CSS
+- **Container / Web Server**: Docker & Nginx
 
-## React Compiler
+## Repository Structure
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+```text
+CATMS-Frontend/
+├── src/             # React components, pages, and application layout
+├── public/          # Static web assets
+├── Dockerfile       # Production multi-stage Nginx container build
+├── nginx.conf       # Nginx server configuration
+└── .env.example     # Environment variable configuration template
+```
 
-## Expanding the ESLint configuration
+## Execution Guide
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+### Option 1: Local Development Server
+
+1. Install npm dependencies:
+   ```bash
+   npm install
+   ```
+2. Copy sample environment file:
+   ```bash
+   cp .env.example .env
+   ```
+3. Launch Vite development server:
+   ```bash
+   npm run dev
+   ```
+
+The application will be accessible at `http://localhost:5173`.
+
+### Option 2: Production Docker Container
+
+```bash
+# Build the docker image
+docker build -t catms-frontend .
+# Run that image (container)
+docker run -p 5173:80 catms-frontend
+```
+
+## Central Documentation
+
+For complete system architecture blueprints and development guidelines, visit the **[project-docs Repository](https://github.com/datanexus-cs3043/project-docs)**.
