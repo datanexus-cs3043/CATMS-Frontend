@@ -10,6 +10,28 @@ const labelStyle: React.CSSProperties = {
 };
 
 
+const roleColor = isDoctor ? '#1d6fb8' : '#0f4575';
+  const displayName = doctor ? doctor.doctor_name : patient ? `${patient.first_name} ${patient.last_name}` : `${user?.first_name} ${user?.last_name}`;
+  const initials = displayName.replace('Dr. ', '').split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase();
+
+  const viewFields = doctor
+    ? [
+        { label: 'Email Address', value: doctor.email },
+        { label: 'Phone / Contact', value: doctor.contact_details },
+        { label: 'Branch', value: doctor.branch_name },
+        { label: 'License Number', value: doctor.doctor_license_number },
+      ]
+    : [
+        { label: 'Email Address', value: patient?.email },
+        { label: 'Phone / Contact', value: patient?.contact_details },
+        { label: 'Date of Birth', value: patient?.date_of_birth },
+        { label: 'Gender', value: patient?.gender },
+        { label: 'Registered Branch', value: patient?.branch_name },
+        { label: 'Patient ID', value: `#${patient?.patient_id}` },
+        { label: 'Address', value: patient?.address, wide: true },
+      ];
+
+      
 return (
     <div style={{ maxWidth: 760, margin: '0 auto', animation: 'fadeIn 0.3s ease' }}>
       <div style={{ marginBottom: 28 }}>
@@ -89,13 +111,63 @@ return (
                   </div>
                 </div>
               )}
+              <div className="form-row">
+                <div className="form-group">
+                  <label className="form-label">Email Address</label>
+                  <input type="email" className="form-control" value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} placeholder="your@email.com" />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Phone / Contact</label>
+                  <input className="form-control" value={form.contact_details} onChange={e => setForm({ ...form, contact_details: e.target.value })} placeholder="07X-XXX-XXXX" />
+                </div>
+              </div>
+              {isPatient && (
+                <div className="form-group">
+                  <label className="form-label">Address</label>
+                  <input className="form-control" value={form.address} onChange={e => setForm({ ...form, address: e.target.value })} placeholder="Your home address" />
+                </div>
+              )}
+              {isDoctor && (
+                <>
+                  <div className="form-group">
+                    <label className="form-label">Specialties * <span style={{ fontWeight: 400, color: 'var(--gray-400)' }}>(select all you practise)</span></label>
+                    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                      {specialties.map(s => {
+                        const on = (form.specialty_ids || []).includes(s.specialty_id);
+                        return (
+                          <button type="button" key={s.specialty_id} onClick={() => toggleSpecialty(s.specialty_id)}
+                            style={{
+                              padding: '6px 14px', borderRadius: 99, fontSize: 13, fontWeight: 600, cursor: 'pointer',
+                              border: `1.5px solid ${on ? '#1d6fb8' : 'var(--gray-200)'}`,
+                              background: on ? '#eef8f3' : 'white', color: on ? '#1d6fb8' : 'var(--gray-600)',
+                            }}>
+                            {on ? '' : ''}{s.specialty_name}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">About / Qualifications</label>
+                    <textarea className="form-control" rows={3} value={form.bio} onChange={e => setForm({ ...form, bio: e.target.value })} placeholder="Qualifications, experience, areas of interest" />
+                  </div>
+                </>
+              )}
+              <div style={{ display: 'flex', gap: 10, marginTop: 8 }}>
+                <button type="submit" className="btn btn-primary" disabled={saving || (isDoctor && !(form.specialty_ids || []).length)}>
+                  {saving ? 'Saving...' : 'Save Changes'}
+                </button>
+                <button type="button" className="btn btn-ghost" onClick={() => setEditing(false)}>Cancel</button>
+              </div>
+            </form>
+          )}
+        </div>
+      </div>
 
       {isDoctor && (
         <div className="alert" style={{ background: '#f3f8fd', border: '1px solid #c6ddf2', color: '#155a96' }}>
           Your license number and branch can only be changed by an administrator.
         </div>
       )}
-      
     </div>
   );
-}
