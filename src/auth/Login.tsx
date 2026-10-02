@@ -63,6 +63,49 @@ export const Login: React.FC = () => {
     }
   }, [tab]);
 
+  const switchTab = (t: Tab) => {
+    setTab(t); setStep(1); setRegError(''); setLoginError(''); setSuccessMsg('');
+  };
+
+  const handleLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoginLoading(true);
+    setLoginError('');
+    try {
+      await login(loginForm.username, loginForm.password);
+      navigate('/');
+    } catch (err) {
+      setLoginError(apiErrorMessage(err, 'Incorrect username or password.'));
+    } finally {
+      setLoginLoading(false);
+    }
+  };
+
+  const handleDemoLogin = (role: string) => {
+    setDemoLoading(role);
+    loginAsDemo(role);
+  };
+
+  const handleRegister = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (regForm.password !== confirmPwd) { setRegError('Passwords do not match.'); return; }
+    if (regForm.password.length < 6) { setRegError('Password must be at least 6 characters.'); return; }
+    setRegLoading(true); setRegError('');
+    try {
+      await authService.register(regForm);
+      setSuccessMsg('Account created. Signing you in…');
+      await login(regForm.username, regForm.password);
+      navigate('/');
+    } catch (err) {
+      setRegError(apiErrorMessage(err, 'Registration failed. Please try again.'));
+    } finally {
+      setRegLoading(false);
+    }
+  };
+
+  const canGoStep2 = !!(regForm.first_name && regForm.last_name && regForm.date_of_birth && regForm.gender);
+  const passwordsDiffer = !!confirmPwd && confirmPwd !== regForm.password;
+
   
   return (
     <div className="auth-page">
