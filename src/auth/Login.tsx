@@ -53,6 +53,17 @@ export const Login: React.FC = () => {
   const [demoLoading, setDemoLoading] = useState<string | null>(null);
 
 
+  useEffect(() => {
+    if (user) navigate('/', { replace: true });
+  }, [user]);
+
+  useEffect(() => {
+    if (tab === 'register' && branches.length === 0) {
+      branchService.getAll().then(setBranches).catch(() => {});
+    }
+  }, [tab]);
+
+  
   return (
     <div className="auth-page">
       <HeroSlider slides={SLIDES} photos={LOGIN_PHOTOS} className="hero-slider auth-backdrop" interval={7000} pauseOnHover={false} />
