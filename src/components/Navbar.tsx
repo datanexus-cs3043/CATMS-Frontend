@@ -93,3 +93,5 @@ export const Navbar: React.FC<{ onMenu: () => void }> = ({ onMenu }) => {
     </header>
   );
 };
+
+//Tharushi
