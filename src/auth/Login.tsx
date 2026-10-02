@@ -1,6 +1,6 @@
-import React, { useState,useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useAuth } from './AuthContext';
-import { authService,branchService,apiErrorMessage,RegisterRequest,Branch } from '../services/api';
+import { authService, branchService, apiErrorMessage, RegisterRequest, Branch } from '../services/api';
 import { useNavigate } from 'react-router-dom';
 import { HeroSlider,photosByName } from '../components/HeroSlider';
 
