@@ -118,19 +118,102 @@ export const Login: React.FC = () => {
 
             </div>
           )}
-        
-        <div>
-          <label>Password</label>
-          <input 
-            type="password" 
-            value={password} 
-            onChange={(e) => setPassword(e.target.value)} 
-            required 
-            style={{ width: '100%', marginBottom: '10px' }}
-          />
-        </div>
-        <button type="submit">Sign In</button>
-      </form>
-    </div>
-  );
-};
+          
+          {tab === 'register' && (
+              <div style={{ animation: 'fadeIn 0.25s ease' }}>
+                <h2>Create your account</h2>
+
+                <div className="steps">
+                  {['Personal details', 'Sign-in details'].map((label, i) => (
+                    <div key={label} className={`step${step >= i + 1 ? ' on' : ''}`}>
+                      <div className="step-bar" />
+                      <div className="step-label">Step {i + 1} · {label}</div>
+                    </div>
+                  ))}
+                </div>
+
+                {successMsg && <div className="alert alert-success">{successMsg}</div>}
+                {regError && <div className="alert alert-error">{regError}</div>}
+
+                <form onSubmit={step === 1 ? (e) => { e.preventDefault(); if (canGoStep2) setStep(2); } : handleRegister}>
+                  {step === 1 && (
+                    <div style={{ animation: 'fadeIn 0.2s ease' }}>
+                      <div className="form-row">
+                        <div className="form-group">
+                          <label className="form-label">First name</label>
+                          <input className="form-control" required value={regForm.first_name} onChange={e => setRegForm({ ...regForm, first_name: e.target.value })} />
+                        </div>
+                        <div className="form-group">
+                          <label className="form-label">Last name</label>
+                          <input className="form-control" required value={regForm.last_name} onChange={e => setRegForm({ ...regForm, last_name: e.target.value })} />
+                        </div>
+                      </div>
+                      <div className="form-row">
+                        <div className="form-group">
+                          <label className="form-label">Date of birth</label>
+                          <input type="date" className="form-control" required value={regForm.date_of_birth} onChange={e => setRegForm({ ...regForm, date_of_birth: e.target.value })} />
+                        </div>
+                        <div className="form-group">
+                          <label className="form-label">Gender</label>
+                          <select className="form-control" value={regForm.gender} onChange={e => setRegForm({ ...regForm, gender: e.target.value })}>
+                            <option>Male</option><option>Female</option><option>Other</option>
+                          </select>
+                        </div>
+                      </div>
+                      <div className="form-group">
+                        <label className="form-label">Phone number <span className="text-muted">(optional)</span></label>
+                        <input className="form-control" placeholder="07X XXX XXXX" value={regForm.contact_details || ''} onChange={e => setRegForm({ ...regForm, contact_details: e.target.value })} />
+                      </div>
+                      <div className="form-group">
+                        <label className="form-label">Home branch</label>
+                        <select className="form-control" value={regForm.branch_id} onChange={e => setRegForm({ ...regForm, branch_id: Number(e.target.value) })}>
+                          {branches.length > 0
+                            ? branches.map(b => <option key={b.branch_id} value={b.branch_id}>{b.branch_name}</option>)
+                            : <><option value={1}>MedSync Colombo</option><option value={2}>MedSync Kandy</option><option value={3}>MedSync Galle</option></>}
+                        </select>
+                      </div>
+                      <button type="submit" className="btn btn-primary btn-lg w-full" disabled={!canGoStep2}>Continue</button>
+                    </div>
+                  )}
+
+                  {step === 2 && (
+                    <div style={{ animation: 'fadeIn 0.2s ease' }}>
+                      <div className="form-group">
+                        <label className="form-label">Email address</label>
+                        <input type="email" className="form-control" required value={regForm.email} onChange={e => setRegForm({ ...regForm, email: e.target.value })} />
+                      </div>
+                      <div className="form-group">
+                        <label className="form-label">Username</label>
+                        <input className="form-control" required minLength={3} value={regForm.username} onChange={e => setRegForm({ ...regForm, username: e.target.value })} />
+                      </div>
+                      <div className="form-group">
+                        <label className="form-label">Password <span className="text-muted">(at least 6 characters)</span></label>
+                        <div className="input-with-action">
+                          <input type={showRegPwd ? 'text' : 'password'} className="form-control" required minLength={6}
+                            value={regForm.password} onChange={e => setRegForm({ ...regForm, password: e.target.value })} />
+                          <button type="button" className="input-action" onClick={() => setShowRegPwd(!showRegPwd)}>{showRegPwd ? 'Hide' : 'Show'}</button>
+                        </div>
+                      </div>
+                      <div className="form-group">
+                        <label className="form-label">Confirm password</label>
+                        <input type="password" className="form-control" required value={confirmPwd} onChange={e => setConfirmPwd(e.target.value)}
+                          style={passwordsDiffer ? { borderColor: 'var(--danger)' } : undefined} />
+                        {passwordsDiffer && <p className="form-error">Passwords do not match.</p>}
+                      </div>
+                      <div style={{ display: 'flex', gap: 10 }}>
+                        <button type="button" className="btn btn-ghost btn-lg" onClick={() => setStep(1)}>Back</button>
+                        <button type="submit" className="btn btn-primary btn-lg" style={{ flex: 1 }} disabled={regLoading || passwordsDiffer}>
+                          {regLoading ? 'Creating account…' : 'Create account'}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </form>
+
+              </div>
+            )}
+          </div>
+        </main>
+      </div>
+    );
+  };
