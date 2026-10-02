@@ -30,6 +30,23 @@ export const Navbar: React.FC<{ onMenu: () => void }> = ({ onMenu }) => {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
+  const key = '/' + (location.pathname.split('/').filter(Boolean)[0] || '');
+  const isDetail = location.pathname.split('/').filter(Boolean).length > 1;
+  const info = pageTitles[location.pathname] || pageTitles[key] || { title: 'MedSync', subtitle: '' };
+
+  useEffect(() => {
+    const onDoc = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false); };
+    const onEsc = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false); };
+    document.addEventListener('mousedown', onDoc);
+    document.addEventListener('keydown', onEsc);
+    return () => { document.removeEventListener('mousedown', onDoc); document.removeEventListener('keydown', onEsc); };
+  }, []);
+
+  const fullName = [user?.first_name, user?.last_name].filter(Boolean).join(' ') || user?.username || 'User';
+  const initials = fullName.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2);
+  const personal = user?.role === 'doctor' || user?.role === 'patient';
+  const go = (path: string) => { setOpen(false); navigate(path); };
+
 
   return (
     <header className="topbar">
