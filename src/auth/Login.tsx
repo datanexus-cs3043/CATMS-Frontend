@@ -54,20 +54,71 @@ export const Login: React.FC = () => {
 
 
   return (
-    <div style={{ maxWidth: '400px', margin: '50px auto', padding: '20px' }}>
-      <h2>MedSync CATMS - Login</h2>
-      {error && <p style={{ color: 'red' }}>{error}</p>}
-      <form onSubmit={handleSubmit}>
+    <div className="auth-page">
+      <HeroSlider slides={SLIDES} photos={LOGIN_PHOTOS} className="hero-slider auth-backdrop" interval={7000} pauseOnHover={false} />
+
+      <div className="auth-brand">
+        <div className="brand-mark" aria-hidden />
         <div>
-          <label>Username</label>
-          <input 
-            type="text" 
-            value={username} 
-            onChange={(e) => setUsername(e.target.value)} 
-            required 
-            style={{ width: '100%', marginBottom: '10px' }}
-          />
+          <div className="brand-name">MedSync</div>
+          <div className="brand-sub">Colombo · Kandy · Galle</div>
         </div>
+      </div>
+
+      <main className="auth-main">
+        <div className="auth-card">
+          <div className="auth-tabs" role="tablist">
+            <button role="tab" aria-selected={tab === 'login'} className={`auth-tab${tab === 'login' ? ' active' : ''}`} onClick={() => switchTab('login')}>Sign in</button>
+            <button role="tab" aria-selected={tab === 'register'} className={`auth-tab${tab === 'register' ? ' active' : ''}`} onClick={() => switchTab('register')}>New patient</button>
+          </div>
+
+          {tab === 'login' && (
+            <div style={{ animation: 'fadeIn 0.25s ease' }}>
+              <h2>Welcome back</h2>
+
+              {loginError && (
+                <div className="alert alert-error">
+                  <div>
+                    {loginError}{' '}
+                    <button className="btn-link" onClick={() => handleDemoLogin('admin')}>Continue as demo administrator</button>
+                  </div>
+                </div>
+              )}
+
+              <form onSubmit={handleLogin}>
+                <div className="form-group">
+                  <label className="form-label" htmlFor="username">Username</label>
+                  <input id="username" className="form-control" autoComplete="username" required
+                    value={loginForm.username} onChange={e => setLoginForm({ ...loginForm, username: e.target.value })} />
+                </div>
+                <div className="form-group">
+                  <label className="form-label" htmlFor="password">Password</label>
+                  <div className="input-with-action">
+                    <input id="password" className="form-control" type={showLoginPwd ? 'text' : 'password'} autoComplete="current-password" required
+                      value={loginForm.password} onChange={e => setLoginForm({ ...loginForm, password: e.target.value })} />
+                    <button type="button" className="input-action" onClick={() => setShowLoginPwd(!showLoginPwd)}>
+                      {showLoginPwd ? 'Hide' : 'Show'}
+                    </button>
+                  </div>
+                </div>
+                <button type="submit" className="btn btn-primary btn-lg w-full" disabled={loginLoading}>
+                  {loginLoading ? 'Signing in…' : 'Sign in'}
+                </button>
+              </form>
+
+              <div className="or-rule">or explore a demo account</div>
+              <div className="demo-chips">
+                {DEMO_ROLES.map(r => (
+                  <button key={r.role} type="button" className="demo-chip" title={`${r.username} / ${r.password}`}
+                    onClick={() => handleDemoLogin(r.role)} disabled={demoLoading !== null}>
+                    {demoLoading === r.role ? 'Opening…' : r.label}
+                  </button>
+                ))}
+              </div>
+
+            </div>
+          )}
+        
         <div>
           <label>Password</label>
           <input 
