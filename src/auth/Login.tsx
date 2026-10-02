@@ -27,7 +27,7 @@ const SLIDES = [
 
 
 export const Login: React.FC = () => {
-  const { login,loginAsDemo,user } = useAuth();
+  const { login, loginAsDemo, user } = useAuth();
   const navigate = useNavigate();
   
   const [tab, setTab] = useState<Tab>('login');
@@ -106,7 +106,7 @@ export const Login: React.FC = () => {
   const canGoStep2 = !!(regForm.first_name && regForm.last_name && regForm.date_of_birth && regForm.gender);
   const passwordsDiffer = !!confirmPwd && confirmPwd !== regForm.password;
 
-  
+
   return (
     <div className="auth-page">
       <HeroSlider slides={SLIDES} photos={LOGIN_PHOTOS} className="hero-slider auth-backdrop" interval={7000} pauseOnHover={false} />
