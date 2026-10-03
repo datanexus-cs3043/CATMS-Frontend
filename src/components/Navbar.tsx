@@ -1,7 +1,10 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../auth/AuthContext';
-import { ROLE_LABEL } from './Sidebar';
+const ROLE_LABEL: Record<string, string> = {
+  admin: 'Administrator', branch_manager: 'Branch Manager', doctor: 'Doctor',
+  receptionist_cashier: 'Receptionist / Cashier', patient: 'Patient',
+};
 
 
 const pageTitles: Record<string, { title: string; subtitle: string }> = {
@@ -23,7 +26,7 @@ const pageTitles: Record<string, { title: string; subtitle: string }> = {
 };
 
 
-export const Navbar: React.FC<{ onMenu: () => void }> = ({ onMenu }) => {
+export const Navbar: React.FC<{ onMenu?: () => void }> = ({ onMenu }) => {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
@@ -50,7 +53,7 @@ export const Navbar: React.FC<{ onMenu: () => void }> = ({ onMenu }) => {
 
   return (
     <header className="topbar">
-      <button className="menu-toggle" onClick={onMenu} aria-label="Open navigation">Menu</button>
+      {onMenu && <button className="menu-toggle" onClick={onMenu} aria-label="Open navigation">Menu</button>}
 
       <div className="topbar-title">
         <h1>{info.title}{isDetail && <span style={{ color: 'var(--gray-400)', fontWeight: 500 }}> · Details</span>}</h1>

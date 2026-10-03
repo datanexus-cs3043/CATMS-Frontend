@@ -1,33 +1,26 @@
 import React, { useState, useEffect } from 'react';
+import axios from 'axios';
 import { useAuth } from './AuthContext';
-import { authService, branchService, apiErrorMessage, RegisterRequest, Branch } from '../services/api';
 import { useNavigate } from 'react-router-dom';
-import { HeroSlider,photosByName } from '../components/HeroSlider';
 
 
 type Tab = 'login' | 'register';
 
-// Demo accounts (password check happens in the data layer)
-const DEMO_ROLES = [
-  { role: 'admin', label: 'Administrator', username: 'admin_user', password: 'admin123' },
-  { role: 'branch_manager', label: 'Branch Manager', username: 'manager_kandy', password: 'manager123' },
-  { role: 'receptionist_cashier', label: 'Receptionist', username: 'cashier_user', password: 'cashier123' },
-  { role: 'doctor', label: 'Doctor', username: 'doctor_silva', password: 'doctor123' },
-  { role: 'patient', label: 'Patient', username: 'patient_kamal', password: 'patient123' },
-];
+// Preserve the registration form until the backend exposes registration.
+interface RegistrationForm {
+  first_name: string; last_name: string; email: string; username: string;
+  password: string; contact_details: string; date_of_birth: string;
+  gender: string; address: string; branch_id: number;
+}
 
-// Login carousel photos (src/assets), each paired with one short line.
-const LOGIN_PHOTOS = photosByName(['749802.webp', '2664853.webp', 'R.jpg', '6853908.webp']);
-const SLIDES = [
-  { eyebrow: 'Colombo · Kandy · Galle', title: 'Care, closer to home.' },
-  { eyebrow: 'Your doctors', title: 'Specialists who know your history.' },
-  { eyebrow: 'Patients first', title: 'Clear answers. Clear bills.' },
-  { eyebrow: 'Treatment', title: 'Expert care when it matters.' },
-];
+const apiErrorMessage = (error: unknown, fallback: string) => {
+  const detail = axios.isAxiosError(error) ? error.response?.data?.detail : undefined;
+  return typeof detail === 'string' ? detail : fallback;
+};
 
 
 export const Login: React.FC = () => {
-  const { login, loginAsDemo, user } = useAuth();
+  const { login, user } = useAuth();
   const navigate = useNavigate();
   
   const [tab, setTab] = useState<Tab>('login');
@@ -37,7 +30,7 @@ export const Login: React.FC = () => {
   const [loginLoading, setLoginLoading] = useState(false);
   const [showLoginPwd, setShowLoginPwd] = useState(false);
 
-  const [regForm, setRegForm] = useState<RegisterRequest>({
+  const [regForm, setRegForm] = useState<RegistrationForm>({
     first_name: '', last_name: '', email: '', username: '',
     password: '', contact_details: '', date_of_birth: '',
     gender: 'Male', address: '', branch_id: 1,
@@ -45,23 +38,15 @@ export const Login: React.FC = () => {
 
   const [confirmPwd, setConfirmPwd] = useState('');
   const [regError, setRegError] = useState('');
-  const [regLoading, setRegLoading] = useState(false);
+  const regLoading = false;
   const [showRegPwd, setShowRegPwd] = useState(false);
-  const [branches, setBranches] = useState<Branch[]>([]);
   const [step, setStep] = useState<1 | 2>(1);
   const [successMsg, setSuccessMsg] = useState('');
-  const [demoLoading, setDemoLoading] = useState<string | null>(null);
 
 
   useEffect(() => {
     if (user) navigate('/', { replace: true });
-  }, [user]);
-
-  useEffect(() => {
-    if (tab === 'register' && branches.length === 0) {
-      branchService.getAll().then(setBranches).catch(() => {});
-    }
-  }, [tab]);
+  }, [user, navigate]);
 
   const switchTab = (t: Tab) => {
     setTab(t); setStep(1); setRegError(''); setLoginError(''); setSuccessMsg('');
@@ -72,7 +57,7 @@ export const Login: React.FC = () => {
     setLoginLoading(true);
     setLoginError('');
     try {
-      await login(loginForm.username, loginForm.password);
+      await login(loginForm);
       navigate('/');
     } catch (err) {
       setLoginError(apiErrorMessage(err, 'Incorrect username or password.'));
@@ -81,26 +66,9 @@ export const Login: React.FC = () => {
     }
   };
 
-  const handleDemoLogin = (role: string) => {
-    setDemoLoading(role);
-    loginAsDemo(role);
-  };
-
-  const handleRegister = async (e: React.FormEvent) => {
+  const handleRegister = (e: React.FormEvent) => {
     e.preventDefault();
-    if (regForm.password !== confirmPwd) { setRegError('Passwords do not match.'); return; }
-    if (regForm.password.length < 6) { setRegError('Password must be at least 6 characters.'); return; }
-    setRegLoading(true); setRegError('');
-    try {
-      await authService.register(regForm);
-      setSuccessMsg('Account created. Signing you in…');
-      await login(regForm.username, regForm.password);
-      navigate('/');
-    } catch (err) {
-      setRegError(apiErrorMessage(err, 'Registration failed. Please try again.'));
-    } finally {
-      setRegLoading(false);
-    }
+    setRegError('Patient registration is not available yet.');
   };
 
   const canGoStep2 = !!(regForm.first_name && regForm.last_name && regForm.date_of_birth && regForm.gender);
@@ -109,7 +77,6 @@ export const Login: React.FC = () => {
 
   return (
     <div className="auth-page">
-      <HeroSlider slides={SLIDES} photos={LOGIN_PHOTOS} className="hero-slider auth-backdrop" interval={7000} pauseOnHover={false} />
 
       <div className="auth-brand">
         <div className="brand-mark" aria-hidden />
@@ -123,7 +90,7 @@ export const Login: React.FC = () => {
         <div className="auth-card">
           <div className="auth-tabs" role="tablist">
             <button role="tab" aria-selected={tab === 'login'} className={`auth-tab${tab === 'login' ? ' active' : ''}`} onClick={() => switchTab('login')}>Sign in</button>
-            <button role="tab" aria-selected={tab === 'register'} className={`auth-tab${tab === 'register' ? ' active' : ''}`} onClick={() => switchTab('register')}>New patient</button>
+            <button role="tab" aria-selected={false} className="auth-tab" disabled title="Patient registration is not available yet">New patient (coming soon)</button>
           </div>
 
           {tab === 'login' && (
@@ -132,10 +99,7 @@ export const Login: React.FC = () => {
 
               {loginError && (
                 <div className="alert alert-error">
-                  <div>
-                    {loginError}{' '}
-                    <button className="btn-link" onClick={() => handleDemoLogin('admin')}>Continue as demo administrator</button>
-                  </div>
+                  {loginError}
                 </div>
               )}
 
@@ -160,15 +124,6 @@ export const Login: React.FC = () => {
                 </button>
               </form>
 
-              <div className="or-rule">or explore a demo account</div>
-              <div className="demo-chips">
-                {DEMO_ROLES.map(r => (
-                  <button key={r.role} type="button" className="demo-chip" title={`${r.username} / ${r.password}`}
-                    onClick={() => handleDemoLogin(r.role)} disabled={demoLoading !== null}>
-                    {demoLoading === r.role ? 'Opening…' : r.label}
-                  </button>
-                ))}
-              </div>
 
             </div>
           )}
@@ -221,9 +176,7 @@ export const Login: React.FC = () => {
                       <div className="form-group">
                         <label className="form-label">Home branch</label>
                         <select className="form-control" value={regForm.branch_id} onChange={e => setRegForm({ ...regForm, branch_id: Number(e.target.value) })}>
-                          {branches.length > 0
-                            ? branches.map(b => <option key={b.branch_id} value={b.branch_id}>{b.branch_name}</option>)
-                            : <><option value={1}>MedSync Colombo</option><option value={2}>MedSync Kandy</option><option value={3}>MedSync Galle</option></>}
+                          <option value={1}>MedSync Colombo</option><option value={2}>MedSync Kandy</option><option value={3}>MedSync Galle</option>
                         </select>
                       </div>
                       <button type="submit" className="btn btn-primary btn-lg w-full" disabled={!canGoStep2}>Continue</button>
