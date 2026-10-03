@@ -110,3 +110,76 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       throw err;
     }
   };
+
+  // ── Logout ──
+  const logout = () => {
+    demoActiveRef.current = false;
+    localStorage.removeItem(DEMO_KEY);
+    setUser(null);
+    setIsDemoMode(false);
+    authService.logout().catch(() => {});
+  };
+
+  const updateUser = (changes: Partial<AuthUser>) => {
+    if (!user) return;
+    const next = { ...user, ...changes };
+    setUser(next);
+    if (demoActiveRef.current) localStorage.setItem(DEMO_KEY, JSON.stringify(next));
+  };
+
+  const resetDemoData = () => {
+    resetLocalDb();
+    if (user?.username) {
+      // Reload the account from the fresh data so edited names are reverted too
+      const role = user.role;
+      logout();
+      loginAsDemo(role);
+    }
+  };
+
+  const hasRole = (roles: UserRole | UserRole[]): boolean => {
+    if (!user) return false;
+    const roleList = Array.isArray(roles) ? roles : [roles];
+    return roleList.includes(user.role as UserRole);
+  };
+
+  const hasAnyRole = (roles: UserRole[]): boolean => {
+    if (!user) return false;
+    return roles.includes(user.role as UserRole);
+  };
+
+  const isAdmin    = user?.role === 'admin' || user?.role === 'branch_manager';
+  const isCashier  = user?.role === 'receptionist_cashier';
+  const isDoctor   = user?.role === 'doctor';
+  const isPatient  = user?.role === 'patient';
+  const isManager  = user?.role === 'branch_manager';
+
+  return (
+    <AuthContext.Provider value={{
+      user,
+      isAuthenticated: !!user,
+      isLoading,
+      isDemoMode,
+      login,
+      loginAsDemo,
+      logout,
+      updateUser,
+      resetDemoData,
+      hasRole,
+      hasAnyRole,
+      isAdmin,
+      isCashier,
+      isDoctor,
+      isPatient,
+      isManager,
+    }}>
+      {children}
+    </AuthContext.Provider>
+  );
+};
+
+export const useAuth = () => {
+  const context = useContext(AuthContext);
+  if (!context) throw new Error('useAuth must be used within an AuthProvider');
+  return context;
+};
