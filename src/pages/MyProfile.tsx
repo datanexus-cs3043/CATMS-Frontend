@@ -10,7 +10,24 @@ const labelStyle: React.CSSProperties = {
 };
 
 
-const roleColor = isDoctor ? '#1d6fb8' : '#0f4575';
+export default function MyProfile() {
+  const { user, isDoctor, isPatient, updateUser } = useAuth();
+
+  const [doctor, setDoctor] = useState<Doctor | null>(null);
+  const [patient, setPatient] = useState<Patient | null>(null);
+  const [specialties, setSpecialties] = useState<Specialty[]>([]);
+  const [contacts, setContacts] = useState<EmergencyContact[]>([]);
+  const [policies, setPolicies] = useState<InsurancePolicy[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [editing, setEditing] = useState(false);
+  const [form, setForm] = useState<any>({});
+  const [saving, setSaving] = useState(false);
+  const [successMsg, setSuccessMsg] = useState('');
+  const [error, setError] = useState('');
+  const [contactForm, setContactForm] = useState({ contact_name: '', relationship: '', phone: '' });
+
+
+  const roleColor = isDoctor ? '#1d6fb8' : '#0f4575';
   const displayName = doctor ? doctor.doctor_name : patient ? `${patient.first_name} ${patient.last_name}` : `${user?.first_name} ${user?.last_name}`;
   const initials = displayName.replace('Dr. ', '').split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase();
 
@@ -169,5 +186,80 @@ return (
           Your license number and branch can only be changed by an administrator.
         </div>
       )}
+
+      {isPatient && (
+        <>
+          <div className="card" style={{ marginBottom: 20 }}>
+            <div className="card-header">
+              <h3 className="card-title">Emergency Contacts</h3>
+              <span className="badge badge-gray">{contacts.length}</span>
+            </div>
+            <div className="card-body">
+              {contacts.length === 0 ? (
+                <p style={{ color: 'var(--gray-400)', fontSize: 13, marginBottom: 12 }}>No emergency contacts yet. Please add at least one.</p>
+              ) : (
+                <div className="table-container" style={{ marginBottom: 16 }}>
+                  <table>
+                    <thead><tr><th>Name</th><th>Relationship</th><th>Phone</th><th></th></tr></thead>
+                    <tbody>
+                      {contacts.map(c => (
+                        <tr key={c.emergency_contact_id}>
+                          <td style={{ fontWeight: 500 }}>{c.contact_name}</td>
+                          <td>{c.relationship}</td>
+                          <td>{c.phone}</td>
+                          <td><button className="btn btn-ghost btn-sm" onClick={() => removeContact(c)}>Remove</button></td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+              <form onSubmit={addContact} style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+                <div className="form-group" style={{ flex: '1 1 160px', marginBottom: 0 }}>
+                  <label className="form-label">Name *</label>
+                  <input className="form-control" required value={contactForm.contact_name} onChange={e => setContactForm({ ...contactForm, contact_name: e.target.value })} />
+                </div>
+                <div className="form-group" style={{ flex: '1 1 120px', marginBottom: 0 }}>
+                  <label className="form-label">Relationship</label>
+                  <input className="form-control" value={contactForm.relationship} onChange={e => setContactForm({ ...contactForm, relationship: e.target.value })} placeholder="e.g. Spouse" />
+                </div>
+                <div className="form-group" style={{ flex: '1 1 140px', marginBottom: 0 }}>
+                  <label className="form-label">Phone *</label>
+                  <input className="form-control" required value={contactForm.phone} onChange={e => setContactForm({ ...contactForm, phone: e.target.value })} />
+                </div>
+                <button type="submit" className="btn btn-secondary">+ Add</button>
+              </form>
+            </div>
+          </div>
+
+          <div className="card">
+            <div className="card-header">
+              <h3 className="card-title">Health Insurance</h3>
+            </div>
+            {policies.length === 0 ? (
+              <div className="card-body">
+                <p style={{ color: 'var(--gray-400)', fontSize: 13 }}>No insurance policy on file. Visit the reception to register your insurance.</p>
+              </div>
+            ) : (
+              <div className="table-container">
+                <table>
+                  <thead><tr><th>Provider</th><th>Policy #</th><th>Valid</th><th>Status</th></tr></thead>
+                  <tbody>
+                    {policies.map(p => (
+                      <tr key={p.policy_id}>
+                        <td style={{ fontWeight: 500 }}>{p.provider_name}</td>
+                        <td style={{ fontFamily: 'monospace' }}>{p.policy_number}</td>
+                        <td style={{ fontSize: 13 }}>{p.start_date} to {p.end_date}</td>
+                        <td><span className={`badge ${p.status === 'Active' ? 'badge-success' : 'badge-gray'}`}>{p.status}</span></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </>
+      )}
     </div>
   );
+}
