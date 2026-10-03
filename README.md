@@ -1,12 +1,13 @@
 # CATMS-Frontend
 
-The frontend is currently a React/Vite prototype with local mock data. Backend API integration is planned but not yet implemented.
+React and TypeScript web client for **MedSync / CATMS**, with Vite tooling, React Router navigation, and an Axios client for backend communication.
 
 ## Technical Stack
 
-- **Framework**: React 18
+- **Framework**: React 19 with TypeScript
 - **Build Tool**: Vite
-- **Styling**: Tailwind CSS
+- **Routing & API Client**: React Router & Axios
+- **Styling**: CSS
 - **Container / Web Server**: Docker & Nginx
 
 ## Repository Structure
@@ -32,6 +33,9 @@ CATMS-Frontend/
    ```bash
    cp .env.example .env
    ```
+
+   Set `VITE_API_BASE_URL` to the backend API URL, including `/api` (for example, `http://localhost:8000/api`). Run the backend separately for API access.
+
 3. Launch Vite development server:
    ```bash
    npm run dev
