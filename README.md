@@ -1,33 +1,28 @@
-# React + Vite
+# CATMS-Frontend
 
-<<<<<<< HEAD
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
-=======
 React and TypeScript web client for **MedSync / CATMS**, with Vite tooling, React Router navigation, and an Axios client for backend communication.
->>>>>>> origin/main
 
-Currently, two official plugins are available:
+## Technical Stack
 
-<<<<<<< HEAD
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
-=======
 - **Framework**: React 19 with TypeScript
 - **Build Tool**: Vite
 - **Routing & API Client**: React Router & Axios
 - **Styling**: CSS
 - **Container / Web Server**: Docker & Nginx
->>>>>>> origin/main
 
-## React Compiler
+## Repository Structure
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+```text
+CATMS-Frontend/
+├── src/             # React components, pages, and application layout
+├── public/          # Static web assets
+├── Dockerfile       # Production multi-stage Nginx container build
+├── nginx.conf       # Nginx server configuration
+└── .env.example     # Environment variable configuration template
+```
 
-## Expanding the ESLint configuration
+## Execution Guide
 
-<<<<<<< HEAD
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
-=======
 ### Option 1: Local Development Server
 
 1. Install npm dependencies:
@@ -60,4 +55,3 @@ docker run -p 5173:80 catms-frontend
 ## Central Documentation
 
 For complete system architecture blueprints and development guidelines, visit the **[project-docs Repository](https://github.com/datanexus-cs3043/project-docs)**.
->>>>>>> origin/main
