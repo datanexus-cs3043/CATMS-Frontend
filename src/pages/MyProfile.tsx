@@ -5,6 +5,7 @@ import {
   Doctor, Patient, Specialty, EmergencyContact, InsurancePolicy,
 } from '../services/api';
 
+
 const labelStyle: React.CSSProperties = {
   fontSize: 11, fontWeight: 700, color: 'var(--gray-400)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4,
 };
@@ -26,11 +27,101 @@ export default function MyProfile() {
   const [error, setError] = useState('');
   const [contactForm, setContactForm] = useState({ contact_name: '', relationship: '', phone: '' });
 
+  useEffect(() => { loadProfile(); }, [user?.user_id]);
+
+  const loadProfile = async () => {
+    setIsLoading(true);
+    try {
+      if (isDoctor && user?.doctor_id) {
+        const [d, s] = await Promise.all([doctorService.getById(user.doctor_id), specialtyService.getAll()]);
+        setDoctor(d);
+        setSpecialties(s);
+      } else if (isPatient && user?.patient_id) {
+        const [p, ec, pol] = await Promise.all([
+          patientService.getById(user.patient_id),
+          patientService.getEmergencyContacts(user.patient_id),
+          patientService.getInsurancePolicies(user.patient_id),
+        ]);
+        setPatient(p);
+        setContacts(ec);
+        setPolicies(pol);
+      }
+    } catch (err) {
+      setError(apiErrorMessage(err, 'Could not load your profile.'));
+    } finally { setIsLoading(false); }
+  };
+
+  const startEditing = () => {
+    setError(''); setSuccessMsg('');
+    if (doctor) {
+      setForm({
+        first_name: doctor.first_name || '', last_name: doctor.last_name || '',
+        email: doctor.email || '', contact_details: doctor.contact_details || '',
+        bio: doctor.bio || '', specialty_ids: (doctor.specialties || []).map(s => s.specialty_id),
+      });
+    } else if (patient) {
+      setForm({ email: patient.email || '', contact_details: patient.contact_details || '', address: patient.address || '' });
+    }
+    setEditing(true);
+  };
+
+  const toggleSpecialty = (sid: number) => {
+    const current: number[] = form.specialty_ids || [];
+    setForm({ ...form, specialty_ids: current.includes(sid) ? current.filter(x => x !== sid) : [...current, sid] });
+  };
+
+  const handleSave = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSaving(true); setError(''); setSuccessMsg('');
+    try {
+      if (isDoctor && user?.doctor_id) {
+        const updated = await doctorService.update(user.doctor_id, form);
+        setDoctor(updated);
+        updateUser({ first_name: updated.first_name, last_name: updated.last_name, email: updated.email });
+        setSuccessMsg('Profile updated. Patients and staff now see your new details in the doctor directory, bookings and invoices.');
+      } else if (isPatient && user?.patient_id) {
+        const updated = await patientService.update(user.patient_id, form);
+        setPatient(updated);
+        updateUser({ email: updated.email });
+        setSuccessMsg('Your contact details have been updated.');
+      }
+      setEditing(false);
+    } catch (err) {
+      setError(apiErrorMessage(err, 'Failed to save changes.'));
+    } finally { setSaving(false); }
+  };
+
+  const addContact = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!user?.patient_id) return;
+    try {
+      await patientService.addEmergencyContact(user.patient_id, contactForm);
+      setContactForm({ contact_name: '', relationship: '', phone: '' });
+      setContacts(await patientService.getEmergencyContacts(user.patient_id));
+    } catch (err) {
+      setError(apiErrorMessage(err));
+    }
+  };
+
+  const removeContact = async (c: EmergencyContact) => {
+    if (!user?.patient_id || !confirm(`Remove ${c.contact_name} from your emergency contacts?`)) return;
+    try {
+      await patientService.deleteEmergencyContact(c.emergency_contact_id);
+      setContacts(await patientService.getEmergencyContacts(user.patient_id));
+    } catch (err) {
+      setError(apiErrorMessage(err));
+    }
+  };
+
+  if (isLoading) {
+    return <div style={{ display: 'flex', justifyContent: 'center', padding: 48 }}><div className="spinner spinner-lg" /></div>;
+  }
 
   const roleColor = isDoctor ? '#1d6fb8' : '#0f4575';
   const displayName = doctor ? doctor.doctor_name : patient ? `${patient.first_name} ${patient.last_name}` : `${user?.first_name} ${user?.last_name}`;
   const initials = displayName.replace('Dr. ', '').split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase();
 
+  
   const viewFields = doctor
     ? [
         { label: 'Email Address', value: doctor.email },
@@ -48,8 +139,8 @@ export default function MyProfile() {
         { label: 'Address', value: patient?.address, wide: true },
       ];
 
-      
-return (
+
+  return (
     <div style={{ maxWidth: 760, margin: '0 auto', animation: 'fadeIn 0.3s ease' }}>
       <div style={{ marginBottom: 28 }}>
         <h2 style={{ fontSize: 22, fontWeight: 600, color: 'var(--gray-900)', margin: 0 }}>My Profile</h2>
