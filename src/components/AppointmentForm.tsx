@@ -16,23 +16,23 @@ export const AppointmentForm: React.FC<AppointmentFormProps> = ({ onSubmit, onCa
   };
 
   return (
-    <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+    <form onSubmit={handleSubmit} className="flex flex-col gap-3">
       <h3>Appointment Form</h3>
       <div>
-        <label>Patient ID: </label>
-        <input value={patientId} onChange={(e) => setPatientId(e.target.value)} required />
+        <label className="form-label">Patient ID</label>
+        <input className="form-control" value={patientId} onChange={(e) => setPatientId(e.target.value)} required />
       </div>
       <div>
-        <label>Doctor ID: </label>
-        <input value={doctorId} onChange={(e) => setDoctorId(e.target.value)} required />
+        <label className="form-label">Doctor ID</label>
+        <input className="form-control" value={doctorId} onChange={(e) => setDoctorId(e.target.value)} required />
       </div>
       <div>
-        <label>Date & Time: </label>
-        <input type="datetime-local" value={dateTime} onChange={(e) => setDateTime(e.target.value)} required />
+        <label className="form-label">Date & Time</label>
+        <input className="form-control" type="datetime-local" value={dateTime} onChange={(e) => setDateTime(e.target.value)} required />
       </div>
-      <div style={{ display: 'flex', gap: '8px' }}>
-        <button type="submit">Save Appointment</button>
-        {onCancel && <button type="button" onClick={onCancel}>Cancel</button>}
+      <div className="flex gap-2">
+        <button type="submit" className="btn btn-primary">Save Appointment</button>
+        {onCancel && <button type="button" className="btn btn-ghost" onClick={onCancel}>Cancel</button>}
       </div>
     </form>
   );
