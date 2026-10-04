@@ -1,40 +1,80 @@
 import React from 'react';
-import { Link } from 'react-router-dom';
+import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../auth/AuthContext';
 
-export const Sidebar: React.FC = () => {
-  const { user, hasRole } = useAuth();
+interface NavSection {
+  section: string;
+  items: {path: string; label: string}[];
+}
 
-  return (
-    <aside style={{ width: '240px', padding: '16px', borderRight: '1px solid #ddd' }}>
-      <h3>MedSync CATMS</h3>
-      <p>Role: <strong>{user?.role}</strong></p>
-      
-      <nav style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-        <Link to="/">Dashboard</Link>
-        <Link to="/patients">Patients</Link>
-        <Link to="/appointments">Appointments</Link>
-        <Link to="/doctors">Doctors</Link>
-        <Link to="/treatments">Treatments</Link>
+const ADMIN_NAV: NavSection[] = [
+  { section: 'Overview', items: [
+    { path: '/', label: 'Dashboard' },
+    { path: '/reports', label: 'Reports' },
+  ]},
+  { section: 'Clinical', items: [
+    { path: '/appointments', label: 'Appointments' },
+    { path: '/patients', label: 'Patients' },
+    { path: '/doctors', label: 'Doctors' },
+    { path: '/treatments', label: 'Treatment Catalogue' },
+  ]},
+  { section: 'Billing', items: [
+    { path: '/invoices', label: 'Invoices' },
+    { path: '/payments', label: 'Payments' },
+    { path: '/insurance', label: 'Insurance' },
+  ]},
+  { section: 'Administration', items: [
+    { path: '/staff', label: 'Staff' },
+    { path: '/branches', label: 'Branches' },
+  ]},
+];
 
-        {/* Financial links: restricted to admin, branch_manager, receptionist_cashier */}
-        {hasRole(['admin', 'branch_manager', 'receptionist_cashier']) && (
-          <>
-            <Link to="/invoices">Invoices</Link>
-            <Link to="/payments">Payments</Link>
-            <Link to="/insurance">Insurance</Link>
-          </>
-        )}
+const CASHIER_NAV: NavSection[] = [
+  { section: 'Front Desk', items: [
+    { path: '/', label: 'Dashboard' },
+    { path: '/appointments', label: 'Appointments' },
+    { path: '/patients', label: 'Patients' },
+    { path: '/doctors', label: 'Doctors' },
+    { path: '/treatments', label: 'Treatment Catalogue' },
+  ]},
+  { section: 'Billing', items: [
+    { path: '/invoices', label: 'Invoices' },
+    { path: '/payments', label: 'Payments' },
+    { path: '/insurance', label: 'Insurance' },
+  ]},
+];
 
-        {/* Administrative links: restricted to admin, branch_manager */}
-        {hasRole(['admin', 'branch_manager']) && (
-          <>
-            <Link to="/staff">Staff</Link>
-            <Link to="/branches">Branches</Link>
-            <Link to="/reports">Reports</Link>
-          </>
-        )}
-      </nav>
-    </aside>
-  );
+const DOCTOR_NAV: NavSection[] = [
+  { section: 'My Practice', items: [
+    { path: '/', label: 'Dashboard' },
+    { path: 'my-appointments', label: 'My Appointments' },
+    { path: '/my-patients', label: 'My Patients' },
+    { path: 'my-profile', label: 'My Profile' },
+  ]},
+
+  { section: 'Reference', items: [
+    {path: '/treatments', label: 'Treatment Catalogue' },
+  ]},
+];
+
+const PATIENT_NAV: NavSection[] = [
+  { section: 'My Care', items: [
+    { path: '/', label: 'Dashboard' },
+    { path: '/my-appointments', label: 'My Appointments' },
+    { path: 'my-bills', label: 'My Bills' },
+    { path: 'my-profile', label: 'My Profile' },
+  ]},
+  { section: 'Find Care', items: [
+    { path: '/doctors', label: 'Find a doctor' },
+    { path: 'treatments', label: 'Service & Prices' },
+  ]},
+];
+
+export const ROLE_LABEL: Record<string, string> = {
+  admin: 'Administrator',
+  branch_manager: 'Branch Manager',
+  doctor: 'Doctor',
+  receptionist_cashier: 'Receptionist / Cashier',
+  patient: 'Patient',
 };
+
