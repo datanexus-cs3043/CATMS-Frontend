@@ -3,8 +3,15 @@ import { staffService, branchService, apiErrorMessage, Branch } from '../service
 import type { Staff } from '../services/api';
 import { useAuth } from '../auth/AuthContext';
 
+const roleColor: Record<string, { color: string; bg: string }> = {
+  Doctor: { color: '#1d6fb8', bg: '#eef8f3' },
+  Receptionist: { color: '#3f89cc', bg: '#f3f8fd' },
+  Manager: { color: '#155a96', bg: '#f3f8fd' },
+  Admin: { color: '#b86e0c', bg: '#fdf6ea' },
+};
 
 export default function Staff() {
+    
 
   return (
     <div style={{ animation: 'fadeIn 0.3s ease' }}>
@@ -102,7 +109,81 @@ export default function Staff() {
             </table>
           </div>
         )}
-      </div>       
+      </div>
+
+      {showModal && (
+        <div className="modal-overlay" onClick={() => setShowModal(false)}>
+          <div className="modal modal-lg" onClick={e => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3 className="modal-title">Add Staff Member</h3>
+              <button className="modal-close" onClick={() => setShowModal(false)}></button>
+            </div>
+            <form onSubmit={handleSubmit}>
+              <div className="modal-body">
+                {error && <div className="alert alert-error">{error}</div>}
+                <div className="form-row">
+                  <div className="form-group">
+                    <label className="form-label">First Name *</label>
+                    <input className="form-control" required value={form.first_name || ''} onChange={e => setForm({...form, first_name: e.target.value})} />
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">Last Name *</label>
+                    <input className="form-control" required value={form.last_name || ''} onChange={e => setForm({...form, last_name: e.target.value})} />
+                  </div>
+                </div>
+                <div className="form-row">
+                  <div className="form-group">
+                    <label className="form-label">Email *</label>
+                    <input type="email" className="form-control" required value={form.email || ''} onChange={e => setForm({...form, email: e.target.value})} />
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">Contact</label>
+                    <input className="form-control" value={form.contact_details || ''} onChange={e => setForm({...form, contact_details: e.target.value})} />
+                  </div>
+                </div>
+                <div className="form-row">
+                  <div className="form-group">
+                    <label className="form-label">Staff Type *</label>
+                    <select className="form-control" value={form.staff_type || 'Medical'} onChange={e => setForm({...form, staff_type: e.target.value})}>
+                      <option>Medical</option>
+                      <option>Non-Medical</option>
+                    </select>
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">Role *</label>
+                    <select className="form-control" value={form.role || 'Doctor'} onChange={e => setForm({...form, role: e.target.value, staff_type: ['Doctor', 'Nurse'].includes(e.target.value) ? 'Medical' : 'Non-Medical'})}>
+                      <option>Doctor</option>
+                      <option>Nurse</option>
+                      <option>Receptionist</option>
+                      <option>Cashier</option>
+                      <option>Manager</option>
+                      <option>Admin</option>
+                    </select>
+                  </div>
+                </div>
+                {form.role === 'Doctor' && (
+                  <div className="form-group">
+                    <label className="form-label">SLMC License Number *</label>
+                    <input className="form-control" required value={form.doctor_license_number} onChange={e => setForm({...form, doctor_license_number: e.target.value})} placeholder="e.g. SLMC-1234" />
+                  </div>
+                )}
+                <div className="form-group">
+                  <label className="form-label">Branch *</label>
+                  <select className="form-control" required value={form.branch_id || 1} onChange={e => setForm({...form, branch_id: Number(e.target.value)})}>
+                    {branches.map(b => <option key={b.branch_id} value={b.branch_id}>{b.branch_name}</option>)}
+                  </select>
+                </div>
+              </div>
+              <div className="modal-footer">
+                <button type="button" className="btn btn-ghost" onClick={() => setShowModal(false)}>Cancel</button>
+                <button type="submit" className="btn btn-primary" disabled={submitting}>
+                  {submitting ? <><span className="spinner" style={{ width: 14, height: 14, borderWidth: 2 }} /> Adding...</> : 'Add Staff'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
