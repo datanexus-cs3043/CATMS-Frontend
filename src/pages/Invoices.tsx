@@ -34,3 +34,80 @@ export default function Invoices() {
   const [generateId, setGenerateId] = useState('');
   const [generating, setGenerating] = useState(false);
   const [generateError, setGenerateError] = useState('');
+
+  useEffect(() => {
+    loadData();
+    if (searchParams.get('new') === '1') {
+      setShowGenerate(true);
+      setSearchParams({}, { replace: true });
+    }
+  }, []);
+
+  const loadData = async () => {
+    setIsLoading(true);
+    try {
+      const [invs, completed] = await Promise.all([
+        invoiceService.getAll(),
+        appointmentService.getAll({ status: 'Completed' }),
+      ]);
+      setInvoices(invs);
+      setBillable(completed.filter(a => !a.invoice_id));
+    } catch {
+      /* the page shows an empty state */
+    } finally { setIsLoading(false); }
+  };
+
+  const filtered = invoices.filter(inv => {
+    const q = search.toLowerCase();
+    const matchSearch = !search || `inv-${inv.invoice_id}`.includes(q) || String(inv.invoice_id) === q ||
+      (inv.patient_name || '').toLowerCase().includes(q) || (inv.doctor_name || '').toLowerCase().includes(q);
+    const matchStatus = !filterStatus || inv.status === filterStatus;
+    const matchPatient = !patientFilter || inv.patient_id === patientFilter;
+    return matchSearch && matchStatus && matchPatient;
+  });
+
+  const totalBilled = invoices.reduce((sum, inv) => sum + Number(inv.total_amount ?? 0), 0);
+  const totalCollected = invoices.reduce((sum, inv) => sum + Number(inv.amount_paid), 0);
+  const totalInsurance = invoices.reduce((sum, inv) => sum + Number(inv.insurance_covered ?? 0), 0);
+  const totalBalance = invoices.reduce((sum, inv) => sum + Number(inv.balance), 0);
+
+  const openPay = (inv: Invoice) => {
+    setSelectedInv(inv);
+    setPayAmount('');
+    setPayMethod('Cash');
+    setPayError('');
+    setShowPayModal(true);
+  };
+
+  const handlePayment = async () => {
+    if (!selectedInv || !payAmount) return;
+    setPaying(true);
+    setPayError('');
+    try {
+      const updated = await invoiceService.makePayment(selectedInv.invoice_id, { amount: Number(payAmount), method: payMethod });
+      setShowPayModal(false);
+      setSuccessMsg(`Payment of ${money(Number(payAmount))} recorded for INV-${updated.invoice_id}. Remaining balance: ${money(updated.balance)}.`);
+      setTimeout(() => setSuccessMsg(''), 5000);
+      loadData();
+    } catch (err) {
+      setPayError(apiErrorMessage(err, 'Payment failed'));
+    } finally { setPaying(false); }
+  };
+
+  const handleGenerate = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setGenerating(true);
+    setGenerateError('');
+    try {
+      const inv = await invoiceService.generate(Number(generateId));
+      setShowGenerate(false);
+      setGenerateId('');
+      navigate(`/invoices/${inv.invoice_id}`);
+    } catch (err) {
+      setGenerateError(apiErrorMessage(err, 'Could not generate the invoice.'));
+    } finally { setGenerating(false); }
+  };
+
+  
+
+}  
