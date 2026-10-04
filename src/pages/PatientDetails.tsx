@@ -7,9 +7,74 @@ import {
 import { statusBadge } from './Appointments';
 import { useAuth } from '../auth/AuthContext';
 
+
 export default function PatientDetails() {
+  const { id } = useParams<{ id: string }>();
+  const navigate = useNavigate();
+  const { isAdmin, isCashier, isDoctor } = useAuth();
+  const canEdit = isAdmin || isCashier;
+
+  const [patient, setPatient] = useState<Patient | null>(null);
+  const [appointments, setAppointments] = useState<Appointment[]>([]);
+  const [emergencyContacts, setEmergencyContacts] = useState<EmergencyContact[]>([]);
+  const [policies, setPolicies] = useState<InsurancePolicy[]>([]);
+  const [activeTab, setActiveTab] = useState<'overview' | 'appointments' | 'insurance' | 'emergency'>('overview');
+  const [isLoading, setIsLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
+  const [contactForm, setContactForm] = useState({ contact_name: '', relationship: '', phone: '' });
+  const backPath = isDoctor ? '/my-patients' : '/patients';
+
+  useEffect(() => {
+    if (!id) return;
+    loadAll();
+  }, [id]);
+
+  const loadAll = async () => {
+    setIsLoading(true);
+    try {
+      const [p, appts, ec, pol] = await Promise.allSettled([
+        patientService.getById(Number(id)),
+        appointmentService.getAll({ patient_id: Number(id) }),
+        patientService.getEmergencyContacts(Number(id)),
+        patientService.getInsurancePolicies(Number(id)),
+      ]);
+      if (p.status === 'fulfilled') setPatient(p.value);
+      else setLoadError(apiErrorMessage(p.reason, 'Patient not found.'));
+      if (appts.status === 'fulfilled') setAppointments(appts.value);
+      if (ec.status === 'fulfilled') setEmergencyContacts(ec.value);
+      if (pol.status === 'fulfilled') setPolicies(pol.value);
+    } catch {}
+    finally { setIsLoading(false); }
+  };
+
+  const calcAge = (dob: string) => {
+    const today = new Date();
+    const birth = new Date(dob);
+    let age = today.getFullYear() - birth.getFullYear();
+    if (today.getMonth() < birth.getMonth() || (today.getMonth() === birth.getMonth() && today.getDate() < birth.getDate())) age--;
+    return age;
+  };
+
+  if (isLoading) return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+      <div className="skeleton" style={{ height: 160, borderRadius: 'var(--radius-lg)' }} />
+      <div className="skeleton" style={{ height: 300, borderRadius: 'var(--radius-lg)' }} />
+    </div>
+  );
+
+  if (!patient) return (
+    <div className="empty-state">
+      <div className="empty-state-icon"></div>
+      <p className="empty-state-title">{loadError.includes('only access') ? 'Access denied' : 'Patient not found'}</p>
+      <p className="empty-state-desc">{loadError}</p>
+      <button className="btn btn-secondary" onClick={() => navigate(backPath)}>Back</button>
+    </div>
+  );
+
+  const initials = `${patient.first_name[0]}${patient.last_name[0]}`.toUpperCase();
+  const hasInsurance = policies.length > 0;
+
   
-    
   return (
     <div style={{ animation: 'fadeIn 0.3s ease' }}>
       {/* Header */}
