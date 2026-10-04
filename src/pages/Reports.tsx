@@ -24,7 +24,7 @@ export default function Reports() {
 
   const [error, setError] = useState('');
 
- 
+
   return (
     <div style={{ animation: 'fadeIn 0.3s ease' }}>
       <div className="report-layout">
@@ -87,8 +87,129 @@ export default function Reports() {
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
               {[1,2,3].map(i => <div key={i} className="skeleton" style={{ height: 60, borderRadius: 'var(--radius)' }} />)}
             </div>
-          ) :  }
-      </div>
+          ) : (
+            <>
+              {/* Branch Appointment Summary */}
+              {activeReport === 'branch' && (
+                <div className="card">
+                  <div className="card-header">
+                    <h3 className="card-title">Branch-wise Appointment Summary</h3>
+                    <span className="badge badge-primary">{branchData.length} records</span>
+                  </div>
+                  {branchData.length === 0 ? (
+                    <div className="empty-state">
+                      <p className="empty-state-title">No data available</p>
+                      <p className="empty-state-desc">Try adjusting the date filter or ensure appointments are booked.</p>
+                    </div>
+                  ) : (
+                    <div className="table-container">
+                      <table>
+                        <thead>
+                          <tr>
+                            <th>Branch</th>
+                            <th>Date</th>
+                            <th>Scheduled</th>
+                            <th>Completed</th>
+                            <th>Cancelled</th>
+                            <th>Total</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {branchData.map((row, idx) => (
+                            <tr key={idx}>
+                              <td style={{ fontWeight: 600 }}>{row.branch_name}</td>
+                              <td>{row.appointment_date}</td>
+                              <td><span className="badge badge-info">{row.scheduled}</span></td>
+                              <td><span className="badge badge-success">{row.completed}</span></td>
+                              <td><span className="badge badge-danger">{row.cancelled}</span></td>
+                              <td style={{ fontWeight: 700 }}>{row.total}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Doctor Revenue */}
+              {activeReport === 'doctor_revenue' && (
+                <div className="card">
+                  <div className="card-header">
+                    <h3 className="card-title">Doctor-wise Revenue Report</h3>
+                    <span className="badge badge-primary">{doctorRevData.length} doctors</span>
+                  </div>
+                  {doctorRevData.length === 0 ? (
+                    <div className="empty-state">
+                      <p className="empty-state-title">No revenue data</p>
+                      <p className="empty-state-desc">Revenue data will appear once invoices are generated.</p>
+                    </div>
+                  ) : (
+                    <div className="table-container">
+                      <table>
+                        <thead><tr><th>Doctor</th><th>Branch</th><th>Invoiced Visits</th><th>Total Billed</th><th>Collected</th><th>Avg per Visit</th></tr></thead>
+                        <tbody>
+                          {doctorRevData.map(d => (
+                            <tr key={d.doctor_id}>
+                              <td style={{ fontWeight: 600 }}>{d.doctor_name}</td>
+                              <td>{d.branch_name}</td>
+                              <td style={{ textAlign: 'center' }}>{d.appointment_count}</td>
+                              <td style={{ fontWeight: 700, color: 'var(--success)' }}>Rs. {Number(d.total_revenue).toLocaleString()}</td>
+                              <td>Rs. {Number(d.collected ?? 0).toLocaleString()}</td>
+                              <td style={{ color: 'var(--gray-600)' }}>Rs. {Number(d.avg_revenue).toLocaleString()}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Outstanding Patients */}
+              {activeReport === 'outstanding' && (
+                <div className="card">
+                  <div className="card-header">
+                    <h3 className="card-title">Patients with Outstanding Balances</h3>
+                    <span className="badge badge-danger">{outstandingData.length} patients</span>
+                  </div>
+                  {outstandingData.length === 0 ? (
+                    <div className="empty-state">
+                      <div className="empty-state-icon" style={{ background: 'var(--success-light)', color: 'var(--success)' }}>
+                      </div>
+                      <p className="empty-state-title" style={{ color: 'var(--success)' }}>No outstanding balances! </p>
+                      <p className="empty-state-desc">All patients are up to date with their payments.</p>
+                    </div>
+                  ) : (
+                    <div className="table-container">
+                      <table>
+                        <thead><tr><th>Patient</th><th>Contact</th><th>Outstanding Amount</th><th>Invoices</th></tr></thead>
+                        <tbody>
+                          {outstandingData.map(p => (
+                            <tr key={p.patient_id}>
+                              <td>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                  <div className="avatar" style={{ width: 30, height: 30, fontSize: 12 }}>
+                                    {p.patient_name.split(' ').map(n=>n[0]).join('').slice(0,2).toUpperCase()}
+                                  </div>
+                                  <span style={{ fontWeight: 500 }}>{p.patient_name}</span>
+                                </div>
+                              </td>
+                              <td style={{ fontSize: 13, color: 'var(--gray-500)' }}>{p.contact_details || '—'}</td>
+                              <td style={{ fontWeight: 700, color: 'var(--danger)', fontSize: 15 }}>
+                                Rs. {Number(p.total_outstanding).toLocaleString()}
+                              </td>
+                              <td>
+                                <span className="badge badge-danger">{p.invoice_count} invoice(s)</span>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              )}
     </div>
   );
 }
