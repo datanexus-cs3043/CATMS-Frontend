@@ -24,6 +24,41 @@ export default function Reports() {
 
   const [error, setError] = useState('');
 
+  const loadReport = async (type: ReportType, filter = dateFilter) => {
+    setIsLoading(true);
+    setError('');
+    try {
+      switch (type) {
+        case 'branch':
+          setBranchData(await reportsService.getBranchAppointmentSummary({ date: filter.date || undefined }));
+          break;
+        case 'doctor_revenue':
+          setDoctorRevData(await reportsService.getDoctorRevenue({ from_date: filter.from || undefined, to_date: filter.to || undefined }));
+          break;
+        case 'outstanding':
+          setOutstandingData(await reportsService.getOutstandingPatients());
+          break;
+        case 'treatment':
+          setTreatmentData(await reportsService.getTreatmentCounts({ from_date: filter.from || undefined, to_date: filter.to || undefined }));
+          break;
+        case 'insurance':
+          setInsuranceData(await reportsService.getInsuranceSummary({ from_date: filter.from || undefined, to_date: filter.to || undefined }));
+          break;
+      }
+    } catch (err: any) {
+      setError(err?.response?.data?.detail || 'Could not load the report.');
+    } finally { setIsLoading(false); }
+  };
+
+  useEffect(() => { loadReport(activeReport); }, [activeReport]);
+
+  const reports = [
+    { key: 'branch' as const, label: 'Branch Appointment Summary', desc: 'Daily appointments per branch by status' },
+    { key: 'doctor_revenue' as const, label: 'Doctor Revenue', desc: 'Revenue generated per doctor' },
+    { key: 'outstanding' as const, label: 'Outstanding Balances', desc: 'Patients with unpaid invoices' },
+    { key: 'treatment' as const, label: 'Treatment Counts', desc: 'Number of treatments by category' },
+    { key: 'insurance' as const, label: 'Insurance vs Out-of-Pocket', desc: 'Insurance coverage analysis' },
+  ];
 
   return (
     <div style={{ animation: 'fadeIn 0.3s ease' }}>
@@ -312,3 +347,5 @@ export default function Reports() {
     </div>
   );
 }
+
+//Tharushi
