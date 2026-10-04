@@ -210,6 +210,105 @@ export default function Reports() {
                   )}
                 </div>
               )}
+
+              {/* Treatment Counts */}
+              {activeReport === 'treatment' && (
+                <div className="card">
+                  <div className="card-header">
+                    <h3 className="card-title">Treatment Count by Category</h3>
+                  </div>
+                  {treatmentData.length === 0 ? (
+                    <div className="empty-state">
+                      <p className="empty-state-title">No treatment data</p>
+                    </div>
+                  ) : (
+                    <div className="table-container">
+                      <table>
+                        <thead><tr><th>Category</th><th>Treatment</th><th>Count</th><th>Total Revenue</th></tr></thead>
+                        <tbody>
+                          {treatmentData.map((t, idx) => (
+                            <tr key={idx}>
+                              <td><span className="tag">{t.category_name}</span></td>
+                              <td style={{ fontWeight: 500 }}>{t.treatment_name}</td>
+                              <td style={{ fontWeight: 700, color: 'var(--primary)' }}>{t.count}</td>
+                              <td style={{ color: 'var(--success)', fontWeight: 600 }}>Rs. {Number(t.total_revenue).toLocaleString()}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Insurance Summary */}
+              {activeReport === 'insurance' && (
+                <div>
+                  {!insuranceData ? (
+                    <div className="card">
+                      <div className="empty-state">
+                        <p className="empty-state-title">No insurance data available</p>
+                      </div>
+                    </div>
+                  ) : (
+                    <>
+                      <div className="stats-grid" style={{ marginBottom: 20 }}>
+                        {[
+                          { label: 'Total Billed', value: `Rs. ${Number(insuranceData.total_billed ?? 0).toLocaleString()}`, color: '#3f89cc', suffix: '' },
+                          { label: 'Total Claims', value: insuranceData.total_claims, color: '#155a96', suffix: '' },
+                          { label: 'Insurance Approved', value: `Rs. ${Number(insuranceData.approved_amount).toLocaleString()}`, color: '#1d6fb8', suffix: '' },
+                          { label: 'Out-of-Pocket', value: `Rs. ${Number(insuranceData.out_of_pocket).toLocaleString()}`, color: '#b86e0c', suffix: '' },
+                          { label: 'Pending Claims', value: `Rs. ${Number(insuranceData.pending_amount).toLocaleString()}`, color: '#c2372f', suffix: '' },
+                        ].map(s => (
+                          <div key={s.label} className="stat-card">
+                            <div className="stat-value" style={{ color: s.color }}>{s.value}</div>
+                            <div className="stat-label">{s.label}</div>
+                          </div>
+                        ))}
+                      </div>
+
+                      {/* Coverage ratio visualization */}
+                      <div className="card">
+                        <div className="card-header">
+                          <h3 className="card-title">Coverage vs Out-of-Pocket Ratio</h3>
+                        </div>
+                        <div className="card-body">
+                          {(() => {
+                            const total = Number(insuranceData.approved_amount) + Number(insuranceData.out_of_pocket);
+                            const insurancePct = total > 0 ? (Number(insuranceData.approved_amount) / total) * 100 : 0;
+                            return (
+                              <div>
+                                <div style={{ display: 'flex', borderRadius: 12, overflow: 'hidden', height: 32, marginBottom: 16 }}>
+                                  <div style={{ width: `${insurancePct}%`, background: '#1d6fb8', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white', fontSize: 12, fontWeight: 700, minWidth: insurancePct > 5 ? 'auto' : 0 }}>
+                                    {insurancePct > 10 ? `${insurancePct.toFixed(1)}%` : ''}
+                                  </div>
+                                  <div style={{ flex: 1, background: '#96c0e6', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white', fontSize: 12, fontWeight: 700 }}>
+                                    {(100 - insurancePct) > 10 ? `${(100 - insurancePct).toFixed(1)}%` : ''}
+                                  </div>
+                                </div>
+                                <div style={{ display: 'flex', justifyContent: 'center', gap: 24 }}>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                    <div style={{ width: 12, height: 12, borderRadius: 3, background: '#1d6fb8' }} />
+                                    <span style={{ fontSize: 13, color: 'var(--gray-700)' }}>Insurance Coverage ({insurancePct.toFixed(1)}%)</span>
+                                  </div>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                    <div style={{ width: 12, height: 12, borderRadius: 3, background: '#c2372f' }} />
+                                    <span style={{ fontSize: 13, color: 'var(--gray-700)' }}>Out-of-Pocket ({(100 - insurancePct).toFixed(1)}%)</span>
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          })()}
+                        </div>
+                      </div>
+                    </>
+                  )}
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
