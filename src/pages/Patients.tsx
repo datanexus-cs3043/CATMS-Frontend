@@ -11,6 +11,7 @@ const genderColor: Record<string, { color: string; bg: string }> = {
   Other: { color: '#5f7188', bg: '#f8fafc' },
 };
 
+
 export default function Patients() {
   const navigate = useNavigate();
   const { isAdmin, isCashier } = useAuth();
@@ -33,6 +34,76 @@ export default function Patients() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
+
+  useEffect(() => {
+    loadData();
+    if (searchParams.get('new') === '1') {
+      openModal();
+      setSearchParams({}, { replace: true });
+    }
+  }, []);
+
+  const openModal = () => {
+    setForm(blankForm);
+    setError('');
+    setShowModal(true);
+  };
+
+  const loadData = async () => {
+    setIsLoading(true);
+    try {
+      const [pts, brs] = await Promise.all([
+        patientService.getAll(),
+        branchService.getAll(),
+      ]);
+      setPatients(pts);
+      setBranches(brs);
+    } catch {
+      // handle
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const filtered = patients.filter(p => {
+    const name = `${p.first_name} ${p.last_name}`.toLowerCase();
+    const matchSearch = !search || name.includes(search.toLowerCase()) || p.email?.toLowerCase().includes(search.toLowerCase());
+    const matchBranch = !filterBranch || String(p.branch_id) === filterBranch;
+    const matchGender = !filterGender || p.gender === filterGender;
+    return matchSearch && matchBranch && matchGender;
+  });
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSubmitting(true);
+    setError('');
+    try {
+      const created: any = await patientService.create(form as Partial<Patient>);
+      setSuccessMsg(
+        `${created.first_name} ${created.last_name} registered (Patient #${created.patient_id}).` +
+        (created.username ? ` Patient portal login: ${created.username} / ${created.temporary_password}` : '')
+      );
+      setShowModal(false);
+      loadData();
+      setTimeout(() => setSuccessMsg(''), 10000);
+    } catch (err) {
+      setError(apiErrorMessage(err, 'Failed to register patient'));
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const getBranchName = (id: number) =>
+    branches.find(b => b.branch_id === id)?.branch_name || `Branch #${id}`;
+
+  const calcAge = (dob: string) => {
+    const today = new Date();
+    const birth = new Date(dob);
+    let age = today.getFullYear() - birth.getFullYear();
+    const m = today.getMonth() - birth.getMonth();
+    if (m < 0 || (m === 0 && today.getDate() < birth.getDate())) age--;
+    return age;
+  };
 
 
   return (
