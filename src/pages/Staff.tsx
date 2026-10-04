@@ -3,6 +3,7 @@ import { staffService, branchService, apiErrorMessage, Branch } from '../service
 import type { Staff } from '../services/api';
 import { useAuth } from '../auth/AuthContext';
 
+
 const roleColor: Record<string, { color: string; bg: string }> = {
   Doctor: { color: '#1d6fb8', bg: '#eef8f3' },
   Receptionist: { color: '#3f89cc', bg: '#f3f8fd' },
@@ -10,8 +11,61 @@ const roleColor: Record<string, { color: string; bg: string }> = {
   Admin: { color: '#b86e0c', bg: '#fdf6ea' },
 };
 
+
 export default function Staff() {
-    
+  const { isAdmin } = useAuth();
+  const [staffList, setStaffList] = useState<Staff[]>([]);
+  const [branches, setBranches] = useState<Branch[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [search, setSearch] = useState('');
+  const [filterBranch, setFilterBranch] = useState('');
+  const [filterRole, setFilterRole] = useState('');
+  const [showModal, setShowModal] = useState(false);
+  const blankForm = {
+    first_name: '', last_name: '', email: '', contact_details: '',
+    staff_type: 'Medical', role: 'Doctor', branch_id: 1, doctor_license_number: '',
+  };
+  const [form, setForm] = useState<Record<string, any>>(blankForm);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState('');
+  const [successMsg, setSuccessMsg] = useState('');
+
+  useEffect(() => { loadData(); }, []);
+
+  const loadData = async () => {
+    setIsLoading(true);
+    try {
+      const [s, b] = await Promise.all([staffService.getAll(), branchService.getAll()]);
+      setStaffList(s);
+      setBranches(b);
+    } catch {} finally { setIsLoading(false); }
+  };
+
+  const filtered = staffList.filter(s => {
+    const name = `${s.first_name} ${s.last_name}`.toLowerCase();
+    const matchSearch = !search || name.includes(search.toLowerCase()) || s.email.toLowerCase().includes(search.toLowerCase());
+    const matchBranch = !filterBranch || String(s.branch_id) === filterBranch;
+    const matchRole = !filterRole || s.role.toLowerCase().includes(filterRole.toLowerCase());
+    return matchSearch && matchBranch && matchRole;
+  });
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSubmitting(true); setError('');
+    try {
+      await staffService.create(form as Partial<Staff>);
+      setSuccessMsg(`${form.first_name} ${form.last_name} added as ${form.role}.`);
+      setShowModal(false);
+      loadData();
+      setTimeout(() => setSuccessMsg(''), 3000);
+    } catch (err) {
+      setError(apiErrorMessage(err, 'Failed to add staff'));
+    } finally { setSubmitting(false); }
+  };
+
+  const getBranchName = (id: number) =>
+    branches.find(b => b.branch_id === id)?.branch_name || `Branch #${id}`;
+
 
   return (
     <div style={{ animation: 'fadeIn 0.3s ease' }}>
