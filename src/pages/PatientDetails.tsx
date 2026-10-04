@@ -8,8 +8,8 @@ import { statusBadge } from './Appointments';
 import { useAuth } from '../auth/AuthContext';
 
 export default function PatientDetails() {
-
-
+  
+    
   return (
     <div style={{ animation: 'fadeIn 0.3s ease' }}>
       {/* Header */}
@@ -116,6 +116,125 @@ export default function PatientDetails() {
               ))}
             </div>
           </div>
+        </div>
+      )}
+
+      {activeTab === 'appointments' && (
+        <div className="card">
+          {appointments.length === 0 ? (
+            <div className="empty-state">
+              <p className="empty-state-title">No appointments</p>
+              <p className="empty-state-desc">This patient has no appointment history.</p>
+            </div>
+          ) : (
+            <div className="table-container">
+              <table>
+                <thead><tr><th>Date</th><th>Time</th><th>Doctor</th><th>Type</th><th>Status</th><th>Branch</th><th>Action</th></tr></thead>
+                <tbody>
+                  {appointments.map(a => (
+                    <tr key={a.appointment_id} style={{ cursor: 'pointer' }} onClick={() => navigate(`/appointments/${a.appointment_id}`)}>
+                      <td>{a.appointment_date}</td>
+                      <td style={{ color: 'var(--gray-500)' }}>{a.start_time?.slice(0,5)} – {a.end_time?.slice(0,5)}</td>
+                      <td>{a.doctor_name || `Dr. #${a.doctor_id}`}</td>
+                      <td><span className="badge badge-info">{a.appointment_type}</span></td>
+                      <td>{statusBadge(a.status)}</td>
+                      <td>{a.branch_name || `Branch #${a.branch_id}`}</td>
+                      <td><button className="btn btn-secondary btn-sm">View</button></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+
+      {activeTab === 'insurance' && (
+        <div className="card">
+          {policies.length === 0 ? (
+            <div className="empty-state">
+              <p className="empty-state-title">No insurance policies</p>
+              <p className="empty-state-desc">Patient has no active insurance policies.</p>
+              {canEdit && <button className="btn btn-primary" onClick={() => navigate('/insurance')}>Add Policy</button>}
+            </div>
+          ) : (
+            <div className="table-container">
+              <table>
+                <thead><tr><th>Provider</th><th>Policy #</th><th>Valid From</th><th>Valid To</th><th>Status</th></tr></thead>
+                <tbody>
+                  {policies.map(pol => (
+                    <tr key={pol.policy_id}>
+                      <td style={{ fontWeight: 500 }}>{pol.provider_name || `Provider #${pol.provider_id}`}</td>
+                      <td style={{ fontFamily: 'monospace', fontSize: 13 }}>{pol.policy_number}</td>
+                      <td>{pol.start_date}</td>
+                      <td>{pol.end_date}</td>
+                      <td>
+                        <span className={`badge ${pol.status === 'Active' ? 'badge-success' : 'badge-gray'}`}>{pol.status}</span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+
+      {activeTab === 'emergency' && (
+        <div className="card">
+          {canEdit && (
+            <form
+              className="card-body"
+              style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'flex-end', borderBottom: '1px solid var(--gray-100)' }}
+              onSubmit={async e => {
+                e.preventDefault();
+                try {
+                  await patientService.addEmergencyContact(Number(id), contactForm);
+                  setContactForm({ contact_name: '', relationship: '', phone: '' });
+                  setEmergencyContacts(await patientService.getEmergencyContacts(Number(id)));
+                } catch (err) { alert(apiErrorMessage(err)); }
+              }}
+            >
+              <div className="form-group" style={{ flex: '1 1 160px', marginBottom: 0 }}>
+                <label className="form-label">Name *</label>
+                <input className="form-control" required value={contactForm.contact_name} onChange={e => setContactForm({ ...contactForm, contact_name: e.target.value })} />
+              </div>
+              <div className="form-group" style={{ flex: '1 1 120px', marginBottom: 0 }}>
+                <label className="form-label">Relationship</label>
+                <input className="form-control" value={contactForm.relationship} onChange={e => setContactForm({ ...contactForm, relationship: e.target.value })} />
+              </div>
+              <div className="form-group" style={{ flex: '1 1 140px', marginBottom: 0 }}>
+                <label className="form-label">Phone *</label>
+                <input className="form-control" required value={contactForm.phone} onChange={e => setContactForm({ ...contactForm, phone: e.target.value })} />
+              </div>
+              <button type="submit" className="btn btn-secondary">+ Add Contact</button>
+            </form>
+          )}
+          {emergencyContacts.length === 0 ? (
+            <div className="empty-state">
+              <p className="empty-state-title">No emergency contacts</p>
+              <p className="empty-state-desc">No emergency contacts on file.</p>
+            </div>
+          ) : (
+            <div className="table-container">
+              <table>
+                <thead><tr><th>Name</th><th>Relationship</th><th>Phone</th></tr></thead>
+                <tbody>
+                  {emergencyContacts.map(ec => (
+                    <tr key={ec.emergency_contact_id}>
+                      <td style={{ fontWeight: 500 }}>{ec.contact_name}</td>
+                      <td>{ec.relationship}</td>
+                      <td>
+                        <a href={`tel:${ec.phone}`} style={{ color: 'var(--primary)', textDecoration: 'none', fontWeight: 500 }}>
+                          {ec.phone}
+                        </a>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
       )}
     </div>
