@@ -13,11 +13,11 @@ interface DataTableProps<T> {
 
 export function DataTable<T>({ columns, data, emptyMessage = 'No records found' }: DataTableProps<T>) {
   return (
-    <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: '16px' }}>
+    <table className="mt-4">
       <thead>
         <tr>
           {columns.map((col, idx) => (
-            <th key={idx} style={{ borderBottom: '2px solid #ccc', textAlign: 'left', padding: '8px' }}>
+            <th key={idx}>
               {col.header}
             </th>
           ))}
@@ -26,7 +26,7 @@ export function DataTable<T>({ columns, data, emptyMessage = 'No records found' 
       <tbody>
         {data.length === 0 ? (
           <tr>
-            <td colSpan={columns.length} style={{ textAlign: 'center', padding: '16px' }}>
+            <td colSpan={columns.length} className="p-4 text-center text-gray-500">
               {emptyMessage}
             </td>
           </tr>
@@ -34,7 +34,7 @@ export function DataTable<T>({ columns, data, emptyMessage = 'No records found' 
           data.map((item, rowIdx) => (
             <tr key={rowIdx}>
               {columns.map((col, colIdx) => (
-                <td key={colIdx} style={{ borderBottom: '1px solid #eee', padding: '8px' }}>
+                <td key={colIdx}>
                   {typeof col.accessor === 'function' ? col.accessor(item) : (item[col.accessor] as React.ReactNode)}
                 </td>
               ))}
