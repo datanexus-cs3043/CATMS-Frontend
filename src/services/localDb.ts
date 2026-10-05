@@ -742,3 +742,224 @@ route('PUT', '/treatments/:id', (m, _p, b) => {
   row.standard_price = Number(row.standard_price);
   return treatmentView(row);
 });
+
+
+// Appointments ────────────────────────────────────────────────────────────────
+route('GET', '/appointments', (_m, p) => {
+  const u = me();
+  let list = getDb().appointments.filter(a => canSeeAppointment(u, a));
+  if (p.patient_id) list = list.filter(a => a.patient_id === Number(p.patient_id));
+  if (p.doctor_id) list = list.filter(a => a.doctor_id === Number(p.doctor_id));
+  if (p.branch_id) list = list.filter(a => a.branch_id === Number(p.branch_id));
+  if (p.date) list = list.filter(a => a.appointment_date === p.date);
+  if (p.status) list = list.filter(a => a.status === p.status);
+  return list
+    .slice()
+    .sort((a, b) => b.appointment_date.localeCompare(a.appointment_date) || a.start_time.localeCompare(b.start_time))
+    .map(appointmentView);
+});
+route('GET', '/appointments/:id', m => appointmentView(getVisibleAppointment(Number(m[1]))));
+route('POST', '/appointments', (_m, _p, b) => {
+  const u = me();
+  const d = getDb();
+  if (u.role === 'doctor') forbidden('Doctors cannot book appointments. Please ask the front desk.');
+  const patientId = u.role === 'patient' ? u.patient_id! : Number(b.patient_id);
+  if (!findPatient(patientId)) notFound('Patient');
+  const doctor = findDoctor(Number(b.doctor_id)) ?? notFound('Doctor');
+  if (!b.appointment_date || !b.start_time || !b.end_time) fail(400, 'Date, start time and end time are required.');
+
+  const type = b.appointment_type || 'Consultation';
+  const isWalkIn = type === 'Walk-in' || type === 'Emergency';
+  if (u.role === 'patient' && isWalkIn) forbidden('Walk-in and emergency visits are registered by clinic staff.');
+  if (isWalkIn) {
+    if (b.appointment_date !== seed.localDate(0)) fail(400, 'Walk-in and emergency appointments must be for today.');
+  } else {
+    assertNotPast(b.appointment_date, b.start_time);
+  }
+  if (b.treatment_id && !findTreatment(Number(b.treatment_id))) notFound('Treatment');
+
+  const row = {
+    appointment_id: nextId(d.appointments, 'appointment_id'),
+    patient_id: patientId,
+    doctor_id: doctor.doctor_id,
+    branch_id: findStaff(doctor.staff_id)!.branch_id, // a doctor works at one branch
+    appointment_date: b.appointment_date,
+    start_time: String(b.start_time).slice(0, 5),
+    end_time: String(b.end_time).slice(0, 5),
+    appointment_type: type,
+    created_by: u.username || 'staff',
+    treatment_id: num(b.treatment_id) ?? null,
+    original_appointment_id: null,
+    status: 'Scheduled',
+  };
+  assertNoOverlap(row);
+  d.appointments.push(row);
+  return appointmentView(row);
+});
+route('PUT', '/appointments/:id/cancel', m => {
+  const u = me();
+  const a = getVisibleAppointment(Number(m[1]));
+  if (!canManageAppointment(u, a) && !(u.role === 'doctor' && a.doctor_id === u.doctor_id)) forbidden();
+  assertScheduled(a, 'cancelled');
+  a.status = 'Cancelled';
+  return appointmentView(a);
+});
+route('PUT', '/appointments/:id/complete', m => {
+  const u = me();
+  const a = getVisibleAppointment(Number(m[1]));
+  if (!isFrontDesk(u) && !(u.role === 'doctor' && a.doctor_id === u.doctor_id)) forbidden('Only the treating doctor or clinic staff can complete an appointment.');
+  assertScheduled(a, 'completed');
+  if (a.appointment_date > seed.localDate(0)) fail(400, 'A future appointment cannot be marked as completed.');
+  a.status = 'Completed';
+  // Record the booked service as the first treatment so the visit is billable.
+  const d = getDb();
+  if (a.treatment_id && !d.appointment_treatments.some(t => t.appointment_id === a.appointment_id)) {
+    d.appointment_treatments.push({ appointment_treatment_id: nextId(d.appointment_treatments, 'appointment_treatment_id'), appointment_id: a.appointment_id, treatment_id: a.treatment_id, quantity: 1 });
+  }
+  return appointmentView(a);
+});
+route('POST', '/appointments/:id/reschedule', (m, _p, b) => {
+  const u = me();
+  const d = getDb();
+  const a = getVisibleAppointment(Number(m[1]));
+  if (!canManageAppointment(u, a)) forbidden('Only the patient or clinic staff can reschedule this appointment.');
+  assertScheduled(a, 'rescheduled');
+  if (!b.appointment_date || !b.start_time || !b.end_time) fail(400, 'New date, start time and end time are required.');
+  assertNotPast(b.appointment_date, b.start_time);
+  const row = {
+    ...a,
+    appointment_id: nextId(d.appointments, 'appointment_id'),
+    appointment_date: b.appointment_date,
+    start_time: String(b.start_time).slice(0, 5),
+    end_time: String(b.end_time).slice(0, 5),
+    created_by: u.username || 'staff',
+    original_appointment_id: a.appointment_id,
+    status: 'Scheduled',
+  };
+  assertNoOverlap(row, [a.appointment_id]);
+  a.status = 'Cancelled';
+  d.appointments.push(row);
+  return appointmentView(row);
+});
+route('GET', '/appointments/:id/notes', m => {
+  const a = getVisibleAppointment(Number(m[1]));
+  return getDb().notes.filter(n => n.appointment_id === a.appointment_id);
+});
+route('POST', '/appointments/:id/notes', (m, _p, b) => {
+  const u = me();
+  const a = getVisibleAppointment(Number(m[1]));
+  if (!(u.role === 'doctor' && a.doctor_id === u.doctor_id) && !isManagement(u)) forbidden('Only the treating doctor can add consultation notes.');
+  if (a.status === 'Cancelled') fail(400, 'Notes cannot be added to a cancelled appointment.');
+  if (!text(b.note_content)) fail(400, 'Note cannot be empty.');
+  const d = getDb();
+  const row = { note_id: nextId(d.notes, 'note_id'), appointment_id: a.appointment_id, note_content: text(b.note_content), created_at: new Date().toISOString() };
+  d.notes.push(row);
+  return row;
+});
+route('GET', '/appointments/:id/treatments', m => {
+  const a = getVisibleAppointment(Number(m[1]));
+  return getDb().appointment_treatments.filter(t => t.appointment_id === a.appointment_id).map(t => {
+    const tr = findTreatment(t.treatment_id);
+    return { ...t, treatment_name: tr?.treatment_name, service_code: tr?.service_code, unit_price: tr?.standard_price };
+  });
+});
+const assertCanEditTreatments = (a: Row) => {
+  const u = me();
+  if (!(u.role === 'doctor' && a.doctor_id === u.doctor_id) && !isFrontDesk(u)) forbidden('Only the treating doctor or clinic staff can record treatments.');
+  if (a.status !== 'Completed') fail(400, 'Mark the appointment as completed before recording treatments.');
+  if (invoiceForAppointment(a.appointment_id)) fail(400, 'Treatments are locked because an invoice has already been generated.');
+};
+route('POST', '/appointments/:id/treatments', (m, _p, b) => {
+  const a = getVisibleAppointment(Number(m[1]));
+  assertCanEditTreatments(a);
+  const t = findTreatment(Number(b.treatment_id)) ?? notFound('Treatment');
+  const qty = Math.max(1, Number(b.quantity) || 1);
+  const d = getDb();
+  const existing = d.appointment_treatments.find(x => x.appointment_id === a.appointment_id && x.treatment_id === t.treatment_id);
+  if (existing) existing.quantity += qty;
+  else d.appointment_treatments.push({ appointment_treatment_id: nextId(d.appointment_treatments, 'appointment_treatment_id'), appointment_id: a.appointment_id, treatment_id: t.treatment_id, quantity: qty });
+  return { message: 'Treatment recorded' };
+});
+route('DELETE', '/appointments/:id/treatments/:tid', m => {
+  const a = getVisibleAppointment(Number(m[1]));
+  assertCanEditTreatments(a);
+  const d = getDb();
+  d.appointment_treatments = d.appointment_treatments.filter(x => !(x.appointment_id === a.appointment_id && x.appointment_treatment_id === Number(m[2])));
+  return { message: 'Treatment removed' };
+});
+
+// Invoices & payments ─────────────────────────────────────────────────────────
+route('GET', '/invoices', (_m, p) => {
+  const u = me();
+  if (!isFrontDesk(u) && u.role !== 'patient') forbidden();
+  let list = getDb().invoices.filter(i => canSeeInvoice(u, i)).map(invoiceView);
+  if (p.patient_id) list = list.filter(i => i.patient_id === Number(p.patient_id));
+  if (p.appointment_id) list = list.filter(i => i.appointment_id === Number(p.appointment_id));
+  if (p.status) {
+    const statuses = String(p.status).split(',');
+    list = list.filter(i => statuses.includes(i.status));
+  }
+  return list.sort((a, b) => b.invoice_date.localeCompare(a.invoice_date) || b.invoice_id - a.invoice_id);
+});
+route('GET', '/invoices/:id', m => invoiceView(getVisibleInvoice(Number(m[1]))));
+route('POST', '/invoices', (_m, _p, b) => {
+  const u = requireFrontDesk();
+  const appt = findAppointment(Number(b.appointment_id)) ?? notFound('Appointment');
+  const inv = generateInvoice(appt, u.staff_id || 3, seed.localDate(0));
+  return invoiceView(inv);
+});
+route('GET', '/invoices/:id/items', m => {
+  const inv = getVisibleInvoice(Number(m[1]));
+  return getDb().invoice_items.filter(i => i.invoice_id === inv.invoice_id).map(invoiceItemView);
+});
+route('GET', '/invoices/:id/payments', m => {
+  const inv = getVisibleInvoice(Number(m[1]));
+  return getDb().payments.filter(p => p.invoice_id === inv.invoice_id);
+});
+route('POST', '/invoices/:id/payments', (m, _p, b) => {
+  const u = requireFrontDesk();
+  const inv = findInvoice(Number(m[1])) ?? notFound('Invoice');
+  recordPayment(inv, Number(b.amount), b.method || 'Cash', u.username || 'staff', seed.localDate(0));
+  return invoiceView(inv);
+});
+route('GET', '/payments', () => {
+  requireFrontDesk();
+  return getDb().payments.slice().sort((a, b) => b.payment_id - a.payment_id).map(paymentView);
+});
+route('GET', '/doctor-payments', (_m, p) => {
+  const u = me();
+  let list = getDb().doctor_payments;
+  if (u.role === 'doctor') list = list.filter(x => x.doctor_id === u.doctor_id);
+  else if (!isFrontDesk(u)) forbidden();
+  if (p.doctor_id) list = list.filter(x => x.doctor_id === Number(p.doctor_id));
+  return list.map(x => ({ ...x, doctor_name: findDoctor(x.doctor_id)?.doctor_name }));
+});
+
+// Reports (management only) ───────────────────────────────────────────────────
+route('GET', '/reports/branch-appointment-summary', (_m, p) => { requireManagement(); return reportBranchSummary(p); });
+route('GET', '/reports/doctor-revenue', (_m, p) => { requireManagement(); return reportDoctorRevenue(p); });
+route('GET', '/reports/outstanding-patients', () => { requireManagement(); return reportOutstanding(); });
+route('GET', '/reports/treatment-counts', (_m, p) => { requireManagement(); return reportTreatmentCounts(p); });
+route('GET', '/reports/insurance-summary', (_m, p) => { requireManagement(); return reportInsuranceSummary(p); });
+
+/**
+ * Handle one API request against the local store. Throws LocalHttpError for
+ * 4xx outcomes. Every successful write is persisted.
+ */
+export function handleLocalRequest(method: string, url: string, params: Row = {}, body: Row = {}): unknown {
+  getDb();
+  const path = url.split('?')[0].replace(/\/+$/, '') || '/';
+  const query = { ...Object.fromEntries(new URLSearchParams(url.split('?')[1] || '')), ...params };
+  for (const [key, value] of Object.entries(query)) {
+    if (value === undefined || value === null || value === '') delete query[key];
+  }
+  for (const [m, re, handler] of routes) {
+    if (m !== method) continue;
+    const match = path.match(re);
+    if (!match) continue;
+    const result = handler(match, query, body || {});
+    if (method !== 'GET') save();
+    return clone(result);
+  }
+  return fail(404, `No handler for ${method} ${path}`);
+}
