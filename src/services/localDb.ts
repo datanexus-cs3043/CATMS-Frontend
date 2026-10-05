@@ -27,11 +27,13 @@ interface Db {
   insurance_claims: Row[];
 }
 
+
 const DB_VERSION = 3;
 const DB_KEY = 'catms_local_db';
 /** Share of consultation fees paid out to the treating doctor. */
 const DOCTOR_CONSULTATION_SHARE = 0.5;
 const CONSULTATION_CATEGORY_ID = 1;
+
 
 export class LocalHttpError extends Error {
   status: number;
@@ -47,7 +49,8 @@ const fail = (status: number, detail: string): never => { throw new LocalHttpErr
 const forbidden = (detail = 'You do not have permission to access this resource.') => fail(403, detail);
 const notFound = (what: string) => fail(404, `${what} not found.`);
 
-// ── Persistence ───────────────────────────────────────────────────────────────
+
+// Persistence 
 let db: Db | null = null;
 let sessionUser: AuthUser | null = null;
 
@@ -116,7 +119,8 @@ function buildSeed(): Db {
   return fresh;
 }
 
-// ── Small helpers ─────────────────────────────────────────────────────────────
+
+// Small helpers 
 const round2 = (n: number) => Math.round(n * 100) / 100;
 const nextId = (rows: Row[], key: string) => rows.reduce((m, r) => Math.max(m, Number(r[key]) || 0), 0) + 1;
 const nowTime = () => {
@@ -132,14 +136,16 @@ const pick = (src: Row, keys: string[]) =>
 const num = (v: unknown) => (v === undefined || v === null || v === '' ? undefined : Number(v));
 const text = (v: unknown) => String(v ?? '').trim();
 
-// ── Current user & roles ──────────────────────────────────────────────────────
+
+// Current user & roles 
 const me = (): AuthUser => sessionUser ?? fail(401, 'Please sign in to continue.');
 const isManagement = (u: AuthUser) => u.role === 'admin' || u.role === 'branch_manager';
 const isFrontDesk = (u: AuthUser) => isManagement(u) || u.role === 'receptionist_cashier';
 const requireFrontDesk = () => { const u = me(); if (!isFrontDesk(u)) forbidden(); return u; };
 const requireManagement = () => { const u = me(); if (!isManagement(u)) forbidden(); return u; };
 
-// ── Lookups ───────────────────────────────────────────────────────────────────
+
+// Lookups 
 const findBranch = (id: number) => getDb().branches.find(b => b.branch_id === id);
 const findStaff = (id: number) => getDb().staff.find(s => s.staff_id === id);
 const findDoctor = (id: number) => getDb().doctors.find(d => d.doctor_id === id);
@@ -150,7 +156,8 @@ const findInvoice = (id: number) => getDb().invoices.find(i => i.invoice_id === 
 const invoiceForAppointment = (apptId: number) => getDb().invoices.find(i => i.appointment_id === apptId);
 const patientName = (p?: Row) => (p ? `${p.first_name} ${p.last_name}` : undefined);
 
-// ── Access rules ──────────────────────────────────────────────────────────────
+
+// Access rules 
 const doctorHasPatient = (doctorId: number, patientId: number) =>
   getDb().appointments.some(a => a.doctor_id === doctorId && a.patient_id === patientId);
 
@@ -186,7 +193,8 @@ function getVisibleInvoice(id: number) {
   return inv;
 }
 
-// ── Views (joined at read time so edits propagate everywhere) ─────────────────
+
+// Views (joined at read time so edits propagate everywhere) 
 function doctorView(d: Row) {
   const s = findStaff(d.staff_id) || {};
   const specialties = getDb().specialties.filter(sp => (d.specialty_ids || []).includes(sp.specialty_id));
@@ -278,7 +286,8 @@ function paymentView(p: Row) {
   return { ...p, patient_name: patientName(findPatient(a?.patient_id)) };
 }
 
-// ── Billing core ──────────────────────────────────────────────────────────────
+
+// Billing core 
 function recalcInvoice(inv: Row) {
   const d = getDb();
   const items = d.invoice_items.filter(i => i.invoice_id === inv.invoice_id);
@@ -411,7 +420,8 @@ function recordPayment(inv: Row, amount: number, method: string, receivedBy: str
   return p;
 }
 
-// ── Appointment rules ─────────────────────────────────────────────────────────
+
+// Appointment rules 
 function assertNoOverlap(candidate: Row, ignoreIds: number[] = []) {
   const start = toMinutes(candidate.start_time);
   const end = toMinutes(candidate.end_time);
@@ -447,7 +457,8 @@ function canManageAppointment(u: AuthUser, a: Row) {
   return isFrontDesk(u) || (u.role === 'patient' && a.patient_id === u.patient_id);
 }
 
-// ── Reports ───────────────────────────────────────────────────────────────────
+
+//  Reports 
 const inRange = (date: string, from?: string, to?: string) => (!from || date >= from) && (!to || date <= to);
 
 function reportBranchSummary(params: Row) {
@@ -542,13 +553,15 @@ function reportInsuranceSummary(params: Row) {
   };
 }
 
-// ── Router ────────────────────────────────────────────────────────────────────
+
+// Router 
 type Handler = (m: RegExpMatchArray, params: Row, body: Row) => unknown;
 const routes: [string, RegExp, Handler][] = [];
 const route = (method: string, pattern: string, h: Handler) =>
   routes.push([method, new RegExp(`^${pattern.replace(/:\w+/g, '(\\d+)')}$`), h]);
 
-// Auth ─────────────────────────────────────────────────────────────────────────
+
+// Auth 
 const toAuthUser = (u: seed.SeedUser): AuthUser => {
   const { password: _pw, ...rest } = u;
   return rest;
@@ -597,7 +610,8 @@ route('POST', '/auth/register', (_m, _p, b) => {
   return { message: 'Account created', user: toAuthUser(user) };
 });
 
-// Branches ────────────────────────────────────────────────────────────────────
+
+// Branches 
 // Public: the self-registration form needs the branch list before sign-in.
 route('GET', '/branches', () => getDb().branches);
 route('GET', '/branches/:id', m => { me(); return findBranch(Number(m[1])) ?? notFound('Branch'); });
@@ -616,7 +630,8 @@ route('PUT', '/branches/:id', (m, _p, b) => {
   return row;
 });
 
-// Staff ───────────────────────────────────────────────────────────────────────
+
+// Staff 
 route('GET', '/staff', (_m, p) => {
   requireManagement();
   return getDb().staff
@@ -659,7 +674,8 @@ route('PUT', '/staff/:id', (m, _p, b) => {
   return staffView(row);
 });
 
-// Doctors ─────────────────────────────────────────────────────────────────────
+
+// Doctors 
 route('GET', '/doctors', (_m, p) => {
   const u = me();
   let list = getDb().doctors.map(doctorView);
@@ -711,7 +727,8 @@ route('PUT', '/doctors/:id', (m, _p, b) => {
 
 route('GET', '/specialties', () => { me(); return getDb().specialties; });
 
-// Treatments ──────────────────────────────────────────────────────────────────
+
+// Treatments 
 route('GET', '/treatment-categories', () => { me(); return getDb().treatment_categories; });
 route('GET', '/treatments', (_m, p) => {
   me();
@@ -744,7 +761,199 @@ route('PUT', '/treatments/:id', (m, _p, b) => {
 });
 
 
-// Appointments ────────────────────────────────────────────────────────────────
+// Patients 
+route('GET', '/patients', (_m, p) => {
+  const u = me();
+  let list = getDb().patients;
+  if (u.role === 'patient') list = list.filter(x => x.patient_id === u.patient_id);
+  else if (u.role === 'doctor') list = list.filter(x => u.doctor_id && doctorHasPatient(u.doctor_id, x.patient_id));
+  else if (!isFrontDesk(u)) forbidden();
+  if (p.branch_id) list = list.filter(x => x.branch_id === Number(p.branch_id));
+  if (p.search) {
+    const q = String(p.search).toLowerCase();
+    list = list.filter(x => `${x.first_name} ${x.last_name}`.toLowerCase().includes(q) || String(x.email || '').toLowerCase().includes(q));
+  }
+  return list.map(patientView);
+});
+route('GET', '/patients/:id', m => {
+  const id = Number(m[1]);
+  const p = findPatient(id) ?? notFound('Patient');
+  if (!canSeePatient(me(), id)) forbidden('You can only access your own patient records.');
+  return patientView(p);
+});
+route('POST', '/patients', (_m, _p, b) => {
+  requireFrontDesk();
+  const d = getDb();
+  if (!text(b.first_name) || !text(b.last_name) || !b.date_of_birth) fail(400, 'Name and date of birth are required.');
+  if (b.date_of_birth > seed.localDate(0)) fail(400, 'Date of birth cannot be in the future.');
+  const branchId = Number(b.branch_id) || 1;
+  if (!findBranch(branchId)) notFound('Branch');
+  const userId = nextId(d.users, 'user_id');
+  const patientId = nextId(d.patients, 'patient_id');
+  let username = `${text(b.first_name)}.${text(b.last_name)}`.toLowerCase().replace(/[^a-z.]/g, '');
+  if (d.users.some(x => x.username === username)) username = `${username}${patientId}`;
+  const row = {
+    patient_id: patientId, user_id: userId, branch_id: branchId,
+    first_name: text(b.first_name), last_name: text(b.last_name), date_of_birth: b.date_of_birth,
+    gender: b.gender || 'Other', patient_type: b.patient_type || 'Regular',
+    contact_details: text(b.contact_details), email: text(b.email), address: text(b.address),
+  };
+  d.patients.push(row);
+  d.users.push({
+    user_id: userId, user_type: 'patient', role: 'patient', username, password: 'patient123',
+    email: row.email, first_name: row.first_name, last_name: row.last_name, patient_id: patientId, branch_id: branchId,
+  });
+  if (text(b.emergency_contact_name) && text(b.emergency_contact_phone)) {
+    d.emergency_contacts.push({
+      emergency_contact_id: nextId(d.emergency_contacts, 'emergency_contact_id'), patient_id: patientId,
+      contact_name: text(b.emergency_contact_name), relationship: text(b.emergency_contact_relationship) || 'Other', phone: text(b.emergency_contact_phone),
+    });
+  }
+  return { ...patientView(row), username, temporary_password: 'patient123' };
+});
+route('PUT', '/patients/:id', (m, _p, b) => {
+  const u = me();
+  const id = Number(m[1]);
+  const row = findPatient(id) ?? notFound('Patient');
+  const isSelf = u.role === 'patient' && u.patient_id === id;
+  if (!isSelf && !isFrontDesk(u)) forbidden('You can only edit your own profile.');
+  const fields = isSelf
+    ? ['contact_details', 'email', 'address']
+    : ['first_name', 'last_name', 'date_of_birth', 'gender', 'patient_type', 'contact_details', 'email', 'address', 'branch_id'];
+  Object.assign(row, pick(b, fields));
+  const account = getDb().users.find(x => x.patient_id === id);
+  if (account) Object.assign(account, { first_name: row.first_name, last_name: row.last_name, email: row.email });
+  return patientView(row);
+});
+route('GET', '/patients/:id/emergency-contacts', m => {
+  const id = Number(m[1]);
+  if (!canSeePatient(me(), id)) forbidden();
+  return getDb().emergency_contacts.filter(e => e.patient_id === id);
+});
+route('POST', '/patients/:id/emergency-contacts', (m, _p, b) => {
+  const u = me();
+  const id = Number(m[1]);
+  findPatient(id) ?? notFound('Patient');
+  if (!isFrontDesk(u) && !(u.role === 'patient' && u.patient_id === id)) forbidden();
+  if (!text(b.contact_name) || !text(b.phone)) fail(400, 'Contact name and phone are required.');
+  const d = getDb();
+  const row = { emergency_contact_id: nextId(d.emergency_contacts, 'emergency_contact_id'), patient_id: id, contact_name: text(b.contact_name), relationship: text(b.relationship) || 'Other', phone: text(b.phone) };
+  d.emergency_contacts.push(row);
+  return row;
+});
+route('DELETE', '/emergency-contacts/:id', m => {
+  const u = me();
+  const d = getDb();
+  const row = d.emergency_contacts.find(e => e.emergency_contact_id === Number(m[1])) ?? notFound('Emergency contact');
+  if (!isFrontDesk(u) && !(u.role === 'patient' && u.patient_id === row.patient_id)) forbidden();
+  d.emergency_contacts = d.emergency_contacts.filter(e => e !== row);
+  return { message: 'Deleted' };
+});
+route('GET', '/patients/:id/insurance-policies', m => {
+  const id = Number(m[1]);
+  if (!canSeePatient(me(), id)) forbidden();
+  return getDb().insurance_policies.filter(p => p.patient_id === id).map(policyView);
+});
+
+
+// Insurance 
+route('GET', '/insurance-providers', () => { me(); return getDb().insurance_providers; });
+route('POST', '/insurance-providers', (_m, _p, b) => {
+  requireFrontDesk();
+  const d = getDb();
+  if (!text(b.provider_name)) fail(400, 'Provider name is required.');
+  if (d.insurance_providers.some(p => p.provider_name.toLowerCase() === text(b.provider_name).toLowerCase())) fail(409, 'Provider already exists.');
+  const row = { provider_id: nextId(d.insurance_providers, 'provider_id'), provider_name: text(b.provider_name), contact_details: text(b.contact_details) };
+  d.insurance_providers.push(row);
+  return row;
+});
+route('GET', '/insurance-policies', (_m, p) => {
+  const u = me();
+  let list = getDb().insurance_policies;
+  if (u.role === 'patient') list = list.filter(x => x.patient_id === u.patient_id);
+  else if (!isFrontDesk(u)) forbidden();
+  if (p.patient_id) list = list.filter(x => x.patient_id === Number(p.patient_id));
+  if (p.status) list = list.filter(x => x.status === p.status);
+  return list.map(policyView);
+});
+route('POST', '/insurance-policies', (_m, _p, b) => {
+  requireFrontDesk();
+  const d = getDb();
+  if (!findPatient(Number(b.patient_id))) notFound('Patient');
+  if (!d.insurance_providers.some(p => p.provider_id === Number(b.provider_id))) notFound('Insurance provider');
+  if (!b.start_date || !b.end_date || b.end_date < b.start_date) fail(400, 'End date must be on or after the start date.');
+  const row = {
+    policy_id: nextId(d.insurance_policies, 'policy_id'), patient_id: Number(b.patient_id), provider_id: Number(b.provider_id),
+    policy_number: Number(b.policy_number), start_date: b.start_date, end_date: b.end_date, status: b.status || 'Active',
+  };
+  d.insurance_policies.push(row);
+  return policyView(row);
+});
+route('PUT', '/insurance-policies/:id', (m, _p, b) => {
+  requireFrontDesk();
+  const row = getDb().insurance_policies.find(p => p.policy_id === Number(m[1])) ?? notFound('Policy');
+  Object.assign(row, pick(b, ['status', 'start_date', 'end_date', 'policy_number']));
+  return policyView(row);
+});
+route('GET', '/insurance-policies/:id/coverages', m => {
+  const u = me();
+  const pol = getDb().insurance_policies.find(p => p.policy_id === Number(m[1])) ?? notFound('Policy');
+  if (!isFrontDesk(u) && !(u.role === 'patient' && u.patient_id === pol.patient_id)) forbidden();
+  return getDb().insurance_coverages.filter(c => c.policy_id === pol.policy_id)
+    .map(c => ({ ...c, treatment_name: findTreatment(c.treatment_id)?.treatment_name }));
+});
+route('POST', '/insurance-policies/:id/coverages', (m, _p, b) => {
+  requireFrontDesk();
+  const d = getDb();
+  const pol = d.insurance_policies.find(p => p.policy_id === Number(m[1])) ?? notFound('Policy');
+  if (!findTreatment(Number(b.treatment_id))) notFound('Treatment');
+  const pct = Number(b.coverage_percentage);
+  if (!(pct > 0 && pct <= 100)) fail(400, 'Coverage percentage must be between 1 and 100.');
+  if (!(Number(b.maximum_amount) > 0)) fail(400, 'Maximum amount must be positive.');
+  if (d.insurance_coverages.some(c => c.policy_id === pol.policy_id && c.treatment_id === Number(b.treatment_id))) {
+    fail(409, 'This treatment is already covered by the policy.');
+  }
+  const row = { coverage_id: nextId(d.insurance_coverages, 'coverage_id'), policy_id: pol.policy_id, treatment_id: Number(b.treatment_id), coverage_percentage: pct, maximum_amount: Number(b.maximum_amount) };
+  d.insurance_coverages.push(row);
+  return { ...row, treatment_name: findTreatment(row.treatment_id)?.treatment_name };
+});
+route('GET', '/insurance-claims', (_m, p) => {
+  const u = me();
+  let list = getDb().insurance_claims;
+  if (u.role === 'patient') list = list.filter(c => canSeeInvoice(u, findInvoice(c.invoice_id)!));
+  else if (!isFrontDesk(u)) forbidden();
+  if (p.status) list = list.filter(c => c.status === p.status);
+  if (p.invoice_id) list = list.filter(c => c.invoice_id === Number(p.invoice_id));
+  return list.map(claimView);
+});
+route('POST', '/insurance-claims', (_m, _p, b) => {
+  requireFrontDesk();
+  const d = getDb();
+  const inv = findInvoice(Number(b.invoice_id)) ?? notFound('Invoice');
+  const pol = d.insurance_policies.find(p => p.policy_id === Number(b.policy_id)) ?? notFound('Policy');
+  const appt = findAppointment(inv.appointment_id)!;
+  if (pol.patient_id !== appt.patient_id) fail(400, 'This policy does not belong to the invoiced patient.');
+  if (pol.status !== 'Active' || pol.start_date > appt.appointment_date || pol.end_date < appt.appointment_date) {
+    fail(400, 'The policy was not active on the appointment date.');
+  }
+  const amount = Number(b.claim_amount);
+  if (!(amount > 0)) fail(400, 'Claim amount must be greater than zero.');
+  if (amount > Number(inv.balance)) fail(400, `Claim cannot exceed the outstanding balance of Rs. ${Number(inv.balance).toLocaleString()}.`);
+  const row = { claim_id: nextId(d.insurance_claims, 'claim_id'), invoice_id: inv.invoice_id, policy_id: pol.policy_id, claim_date: b.claim_date || seed.localDate(0), claim_amount: round2(amount), approved_amount: 0, status: 'Pending' };
+  d.insurance_claims.push(row);
+  return claimView(row);
+});
+route('PUT', '/insurance-claims/:id', (m, _p, b) => {
+  requireFrontDesk();
+  const claim = getDb().insurance_claims.find(c => c.claim_id === Number(m[1])) ?? notFound('Claim');
+  if (!['Approved', 'Rejected', 'Pending'].includes(b.status)) fail(400, 'Invalid claim status.');
+  if (claim.status !== 'Pending') fail(400, `This claim is already ${claim.status}.`);
+  settleClaim(claim, b.status, num(b.approved_amount));
+  return claimView(claim);
+});
+
+
+// Appointments 
 route('GET', '/appointments', (_m, p) => {
   const u = me();
   let list = getDb().appointments.filter(a => canSeeAppointment(u, a));
@@ -888,7 +1097,8 @@ route('DELETE', '/appointments/:id/treatments/:tid', m => {
   return { message: 'Treatment removed' };
 });
 
-// Invoices & payments ─────────────────────────────────────────────────────────
+
+// Invoices & payments 
 route('GET', '/invoices', (_m, p) => {
   const u = me();
   if (!isFrontDesk(u) && u.role !== 'patient') forbidden();
@@ -935,16 +1145,18 @@ route('GET', '/doctor-payments', (_m, p) => {
   return list.map(x => ({ ...x, doctor_name: findDoctor(x.doctor_id)?.doctor_name }));
 });
 
-// Reports (management only) ───────────────────────────────────────────────────
+
+// Reports (management only) 
 route('GET', '/reports/branch-appointment-summary', (_m, p) => { requireManagement(); return reportBranchSummary(p); });
 route('GET', '/reports/doctor-revenue', (_m, p) => { requireManagement(); return reportDoctorRevenue(p); });
 route('GET', '/reports/outstanding-patients', () => { requireManagement(); return reportOutstanding(); });
 route('GET', '/reports/treatment-counts', (_m, p) => { requireManagement(); return reportTreatmentCounts(p); });
 route('GET', '/reports/insurance-summary', (_m, p) => { requireManagement(); return reportInsuranceSummary(p); });
 
+
 /**
- * Handle one API request against the local store. Throws LocalHttpError for
- * 4xx outcomes. Every successful write is persisted.
+ * Handle one API request against the local store. Throws LocalHttpError.
+ * Every successful write is persisted.
  */
 export function handleLocalRequest(method: string, url: string, params: Row = {}, body: Row = {}): unknown {
   getDb();

@@ -197,3 +197,5 @@ export default function Treatments() {
     </div>
   );
 }
+
+//Tharushi

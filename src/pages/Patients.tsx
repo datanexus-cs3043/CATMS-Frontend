@@ -360,3 +360,5 @@ export default function Patients() {
     </div>
   );
 }
+
+//Tharushi
