@@ -47,9 +47,21 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, []);
 
   const login = async (username: string, password: string) => {
-    const response = await authService.login({ username, password });
-    sessionVersion.current += 1;
-    setUser(response.user);
+    const version = ++sessionVersion.current;
+    setUser(null);
+    try {
+      const response = await authService.login({ username, password });
+      // Confirm the browser's cookie session; never retain the returned JWT.
+      const session = await authService.getMe().catch(() => {
+        throw new Error('Unable to confirm the sign-in session');
+      });
+      if (session.user_id !== response.user.user_id || sessionVersion.current !== version) {
+        throw new Error('The sign-in session changed before it could be confirmed');
+      }
+      setUser(session);
+    } finally {
+      if (sessionVersion.current === version) setIsLoading(false);
+    }
   };
 
   // ── Logout ──

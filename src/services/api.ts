@@ -310,9 +310,20 @@ export const apiErrorMessage = (err: any, fallback = 'Something went wrong. Plea
 };
 
 // ── Auth Service ──────────────────────────────────────────────────────────────
+const isAuthUser = (value: unknown): value is AuthUser => {
+  if (!value || typeof value !== 'object') return false;
+  const user = value as Partial<AuthUser>;
+  const staffRoles: UserRole[] = ['admin', 'branch_manager', 'doctor', 'receptionist_cashier'];
+  return Number.isSafeInteger(user.user_id) && Number(user.user_id) > 0 && (
+    (user.user_type === 'patient' && user.role === 'patient') ||
+    (user.user_type === 'staff' && staffRoles.includes(user.role as UserRole))
+  );
+};
+
 export const authService = {
   login: async (credentials: { username: string; password: string }): Promise<LoginResponse> => {
-    const res = await api.post<LoginResponse>('/auth/login', credentials);
+    const res = await api.post<LoginResponse>('/auth/login', credentials, { timeout: 15000 });
+    if (!isAuthUser(res.data?.user)) throw new Error('Invalid sign-in response');
     return res.data;
   },
   register: async (data: RegisterRequest): Promise<LoginResponse> => {
@@ -320,7 +331,8 @@ export const authService = {
     return res.data;
   },
   getMe: async (): Promise<AuthUser> => {
-    const res = await api.get<AuthUser>('/auth/me');
+    const res = await api.get<AuthUser>('/auth/me', { timeout: 15000 });
+    if (!isAuthUser(res.data)) throw new Error('Invalid session response');
     return res.data;
   },
   logout: async (): Promise<{ message: string }> => {
