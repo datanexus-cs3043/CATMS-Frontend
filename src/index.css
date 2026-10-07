@@ -959,53 +959,7 @@ tbody td { padding: 12px 16px; color: var(--gray-700); vertical-align: middle; }
 .patient-notice-desc {
   color: var(--gray-600);
 }
-.auth-backdrop { position: fixed; inset: 0; margin: 0; border-radius: 0; min-height: 0; z-index: 0; }
-.auth-backdrop .hero-overlay {
-  background:
-    linear-gradient(90deg, rgba(8, 36, 66, 0.72) 0%, rgba(8, 36, 66, 0.38) 50%, rgba(8, 36, 66, 0.3) 100%),
-    linear-gradient(0deg, rgba(8, 36, 66, 0.55) 0%, rgba(8, 36, 66, 0) 45%),
-    linear-gradient(180deg, rgba(8, 36, 66, 0.45) 0%, rgba(8, 36, 66, 0) 20%);
-}
-.auth-backdrop .hero-slide.active img { animation-duration: 9s; }
-.auth-backdrop .hero-content {
-  position: absolute;
-  left: clamp(24px, 5vw, 80px);
-  bottom: 96px;
-  padding: 0;
-  max-width: min(540px, calc(100vw - 430px - 3 * clamp(24px, 5vw, 80px)));
-}
-.auth-backdrop .hero-content .eyebrow { color: #bfe0fb; letter-spacing: 0.14em; }
-.auth-backdrop .hero-content h2 { font-size: clamp(32px, 3.4vw, 50px) !important; line-height: 1.1; margin: 12px 0 0; text-shadow: 0 2px 24px rgba(0, 0, 0, 0.3); }
-.auth-backdrop .hero-caption { left: clamp(24px, 5vw, 80px); right: auto; bottom: 44px; gap: 24px; }
-.auth-backdrop .hero-dot { width: 44px; }
 
-.auth-brand {
-  position: absolute;
-  top: 28px;
-  left: clamp(24px, 5vw, 80px);
-  z-index: 2;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-.auth-brand .brand-name { color: #fff; font-size: 22px; }
-.auth-brand .brand-sub { color: #e3effa; }
-.auth-brand .brand-name, .auth-brand .brand-sub { text-shadow: 0 1px 12px rgba(0, 0, 0, 0.35); }
-.auth-brand .brand-mark { background: #fff; }
-.auth-brand .brand-mark::before, .auth-brand .brand-mark::after { background: var(--primary); }
-
-.auth-main { position: relative; z-index: 2; grid-column: 2; width: 100%; }
-.auth-card {
-  width: 100%;
-  max-height: calc(100dvh - 120px);
-  overflow-y: auto;
-  padding: 32px 32px 28px;
-  border-radius: 18px;
-  background: #fff;
-  box-shadow: 0 24px 60px -18px rgba(8, 28, 48, 0.6), 0 0 0 1px rgba(255, 255, 255, 0.7);
-  animation: authCardIn 0.45s cubic-bezier(0.2, 0.8, 0.2, 1);
-}
-@keyframes authCardIn { from { transform: translateY(10px); } to { transform: none; } }
 .auth-tabs { display: flex; gap: 24px; border-bottom: 1px solid var(--gray-200); margin-bottom: 24px; }
 .auth-tab {
   padding: 0 0 12px;
@@ -1078,11 +1032,8 @@ tbody td { padding: 12px 16px; color: var(--gray-700); vertical-align: middle; }
   .menu-toggle { display: inline-flex; align-items: center; }
   .topbar { padding: 0 20px; }
   .app-content { padding: 24px 20px 36px; }
-  .auth-page { grid-template-columns: minmax(0, 440px); justify-content: center; align-items: start; padding-top: 96px; padding-bottom: 64px; }
-  .auth-main { grid-column: 1; }
-  .auth-card { max-height: none; overflow: visible; }
-  .auth-backdrop .hero-content, .auth-backdrop .hero-arrows { display: none; }
-  .auth-backdrop .hero-caption { left: 50%; transform: translateX(-50%); bottom: 20px; }
+  .auth-page { padding: 48px 20px; }
+  .auth-card { max-height: none; }
 }
 
 @media (max-width: 640px) {
@@ -1108,22 +1059,19 @@ tbody td { padding: 12px 16px; color: var(--gray-700); vertical-align: middle; }
   .hero-content h2 { font-size: 23px !important; }
   .hero-caption { left: 20px; right: 20px; }
   .hero-arrows, .hero-photo-credit { display: none; }
-  .auth-page { grid-template-columns: minmax(0, 1fr); padding: 84px 16px 56px; }
-  .auth-brand { top: 22px; left: 16px; }
-  .auth-card { padding: 24px 20px 22px; border-radius: 16px; }
-  .auth-backdrop .hero-dot { width: 28px; }
+  .auth-page { padding: 32px 14px 40px; }
+  .auth-card { padding: 24px 18px 22px; border-radius: 16px; }
   .demo-banner { padding: 7px 12px; }
   thead th, tbody td { padding: 10px 12px; }
 }
 
 @media (max-height: 760px) and (min-width: 1025px) {
-  .auth-page { padding-top: 76px; padding-bottom: 20px; }
+  .auth-page { padding-top: 28px; padding-bottom: 20px; }
   .auth-card { padding: 24px 28px 22px; max-height: calc(100dvh - 96px); }
   .auth-card h2 { font-size: 23px !important; margin-bottom: 14px; }
   .auth-tabs { margin-bottom: 18px; }
   .auth-card .form-group { margin-bottom: 12px; }
   .auth-card .or-rule { margin: 16px 0 10px; }
-  .auth-brand { top: 20px; }
 }
 
 @media (max-width: 360px) {
