@@ -27,6 +27,7 @@ import MyAppointments from './pages/Myappointments';
 import MyBills from './pages/MyBills';
 import MyProfile from './pages/MyProfile';
 import MyPatients from './pages/MyPatients';
+import LandingPage from './pages/LandingPage';
 
 // ── Demo bar: switch roles while testing without a backend ──────────────────
 const ROLES = [
@@ -55,7 +56,7 @@ const DemoBanner: React.FC = () => {
           <button
             key={r.key}
             className={`${demoBtn} ${user?.role === r.key ? 'border-white bg-white font-semibold text-primary-900' : ''}`}
-            onClick={() => { loginAsDemo(r.key); navigate('/'); }}
+            onClick={() => { loginAsDemo(r.key); navigate('/dashboard'); }}
           >
             {r.label}
           </button>
@@ -66,7 +67,7 @@ const DemoBanner: React.FC = () => {
           onClick={() => {
             if (confirm('Reset all demo data to the original sample records? Any bookings, payments and edits made in this browser will be lost.')) {
               resetDemoData();
-              navigate('/');
+              navigate('/dashboard');
             }
           }}
         >
@@ -107,7 +108,8 @@ export default function App() {
     <AuthProvider>
       <BrowserRouter>
         <Routes>
-          {/* Public Login Route */}
+          {/* Public Landing & Login Routes */}
+          <Route path="/" element={<LandingPage />} />
           <Route path="/login" element={<Login />} />
 
           {/* Protected App Routes with Layout */}
@@ -119,7 +121,7 @@ export default function App() {
             }
           >
             {/* ── Dashboard (all roles) ─────────────────────────── */}
-            <Route path="/" element={<Dashboard />} />
+            <Route path="/dashboard" element={<Dashboard />} />
 
             {/* ── Role-specific personal pages ─────────────────── */}
             <Route

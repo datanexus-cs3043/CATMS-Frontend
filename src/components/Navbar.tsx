@@ -8,7 +8,8 @@ const ROLE_LABEL: Record<string, string> = {
 
 
 const pageTitles: Record<string, { title: string; subtitle: string }> = {
-  '/': { title: 'Dashboard', subtitle: 'Today at MedSync' },
+  '/dashboard': { title: 'Dashboard', subtitle: 'Today at MedSync' },
+  '/': { title: 'MedSync', subtitle: 'Clinic Appointment & Treatment Management System' },
   '/appointments': { title: 'Appointments', subtitle: 'Bookings, walk-ins and rescheduling' },
   '/patients': { title: 'Patients', subtitle: 'Records shared across all branches' },
   '/doctors': { title: 'Doctors', subtitle: 'Specialists across our branches' },
@@ -83,7 +84,8 @@ export const Navbar: React.FC<{ onMenu?: () => void }> = ({ onMenu }) => {
               <div style={{ fontSize: 12, color: 'var(--gray-500)', marginTop: 2 }}>{user?.email || user?.username}</div>
             </div>
             <div style={{ padding: 6 }}>
-              <button className="dropdown-item" onClick={() => go('/')}>Dashboard</button>
+              <button className="dropdown-item" onClick={() => go('/dashboard')}>Dashboard</button>
+              <button className="dropdown-item" onClick={() => go('/')}>Public Homepage</button>
               {personal && <button className="dropdown-item" onClick={() => go('/my-profile')}>My profile</button>}
               {personal && <button className="dropdown-item" onClick={() => go('/my-appointments')}>My appointments</button>}
               {user?.role === 'patient' && <button className="dropdown-item" onClick={() => go('/my-bills')}>My bills</button>}

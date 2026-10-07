@@ -9,7 +9,7 @@ interface NavSection {
 
 const ADMIN_NAV: NavSection[] = [
   { section: 'Overview', items: [
-    { path: '/', label: 'Dashboard' },
+    { path: '/dashboard', label: 'Dashboard' },
     { path: '/reports', label: 'Reports' },
   ]},
   { section: 'Clinical', items: [
@@ -31,7 +31,7 @@ const ADMIN_NAV: NavSection[] = [
 
 const CASHIER_NAV: NavSection[] = [
   { section: 'Front Desk', items: [
-    { path: '/', label: 'Dashboard' },
+    { path: '/dashboard', label: 'Dashboard' },
     { path: '/appointments', label: 'Appointments' },
     { path: '/patients', label: 'Patients' },
     { path: '/doctors', label: 'Doctors' },
@@ -46,27 +46,27 @@ const CASHIER_NAV: NavSection[] = [
 
 const DOCTOR_NAV: NavSection[] = [
   { section: 'My Practice', items: [
-    { path: '/', label: 'Dashboard' },
-    { path: 'my-appointments', label: 'My Appointments' },
+    { path: '/dashboard', label: 'Dashboard' },
+    { path: '/my-appointments', label: 'My Appointments' },
     { path: '/my-patients', label: 'My Patients' },
-    { path: 'my-profile', label: 'My Profile' },
+    { path: '/my-profile', label: 'My Profile' },
   ]},
 
   { section: 'Reference', items: [
-    {path: '/treatments', label: 'Treatment Catalogue' },
+    { path: '/treatments', label: 'Treatment Catalogue' },
   ]},
 ];
 
 const PATIENT_NAV: NavSection[] = [
   { section: 'My Care', items: [
-    { path: '/', label: 'Dashboard' },
+    { path: '/dashboard', label: 'Dashboard' },
     { path: '/my-appointments', label: 'My Appointments' },
-    { path: 'my-bills', label: 'My Bills' },
-    { path: 'my-profile', label: 'My Profile' },
+    { path: '/my-bills', label: 'My Bills' },
+    { path: '/my-profile', label: 'My Profile' },
   ]},
   { section: 'Find Care', items: [
     { path: '/doctors', label: 'Find a doctor' },
-    { path: 'treatments', label: 'Service & Prices' },
+    { path: '/treatments', label: 'Service & Prices' },
   ]},
 ];
 
@@ -93,7 +93,7 @@ export const Sidebar: React.FC<{ open: boolean; onClose: () => void }> = ({ open
     role === 'doctor' ? DOCTOR_NAV :
     role === 'patient' ? PATIENT_NAV : ADMIN_NAV;
 
-  const isActive = (path: string) => (path === '/' ? location.pathname === '/' : location.pathname.startsWith(path));
+  const isActive = (path: string) => (path === '/dashboard' ? location.pathname === '/dashboard' : location.pathname.startsWith(path));
 
   return (
     <>
