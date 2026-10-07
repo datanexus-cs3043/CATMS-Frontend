@@ -76,6 +76,9 @@ export interface Doctor {
   specialty_ids?: number[];
 }
 
+export type DoctorCreateRequest = Pick<Doctor, 'staff_id' | 'doctor_name' | 'doctor_license_number'>;
+export type DoctorUpdateRequest = Partial<Pick<Doctor, 'doctor_name' | 'doctor_license_number'>>;
+
 export interface Specialty {
   specialty_id: number;
   specialty_name: string;
@@ -340,7 +343,7 @@ export const authService = {
     return res.data;
   },
   getCsrfToken: async (): Promise<{ csrf_token: string }> => {
-    const res = await api.get<{ csrf_token: string }>('/auth/csrf');
+    const res = await api.get<{ csrf_token: string }>('/auth/csrf', { timeout: 15000 });
     return res.data;
   },
 };
@@ -382,12 +385,65 @@ export const staffService = {
 };
 
 // ── Doctor Service ─────────────────────────────────────────────────────────────
+const readDoctor = (value: unknown): Doctor => {
+  const doc = value as Partial<Doctor> | null;
+  if (!doc || !Number.isSafeInteger(doc.doctor_id) || Number(doc.doctor_id) <= 0 ||
+      !Number.isSafeInteger(doc.staff_id) || Number(doc.staff_id) <= 0 ||
+      typeof doc.doctor_name !== 'string' || typeof doc.doctor_license_number !== 'string') {
+    throw new Error('Invalid doctor response');
+  }
+  if (doc.specialties !== undefined && (!Array.isArray(doc.specialties) || doc.specialties.some(s =>
+    !s || !Number.isSafeInteger(s.specialty_id) || s.specialty_id <= 0 || typeof s.specialty_name !== 'string'))) {
+    throw new Error('Invalid doctor specialties response');
+  }
+  return doc as Doctor;
+};
+
+const doctorWriteConfig = async () => {
+  const { csrf_token } = await authService.getCsrfToken();
+  if (typeof csrf_token !== 'string' || !csrf_token) throw new Error('Unable to authorize the doctor update');
+  return { headers: { 'X-CSRF-Token': csrf_token }, timeout: 15000 };
+};
+
 export const doctorService = {
-  getAll: (params?: { branch_id?: number; specialty_id?: number; search?: string }) =>
-    get<Doctor[]>('/doctors', params as Record<string, unknown>),
-  getById: (id: number) => get<Doctor>(`/doctors/${id}`),
-  create: (data: Partial<Doctor>) => post<Doctor>('/doctors', data),
-  update: (id: number, data: Partial<Doctor>) => put<Doctor>(`/doctors/${id}`, data),
+  getAll: async (params?: { branch_id?: number; specialty_id?: number; search?: string }): Promise<Doctor[]> => {
+    const doctors: Doctor[] = [];
+    const seen = new Set<number>();
+    // The backend caps pages at 100; do not silently omit the rest of the directory.
+    for (let skip = 0; ; skip += 100) {
+      const res = await api.get<Doctor[]>('/doctors', { params: { ...params, skip, limit: 100 }, timeout: 15000 });
+      if (!Array.isArray(res.data)) throw new Error('Invalid doctor directory response');
+      const page = res.data.map(readDoctor);
+      for (const doc of page) {
+        if (!Number.isSafeInteger(doc.branch_id) || Number(doc.branch_id) <= 0 ||
+            typeof doc.branch_name !== 'string' || !Array.isArray(doc.specialties)) {
+          throw new Error('Doctor directory response is missing branch or specialty details');
+        }
+        if (seen.has(doc.doctor_id)) throw new Error('Doctor directory changed while loading. Please reload.');
+        seen.add(doc.doctor_id);
+        doctors.push(doc);
+      }
+      if (page.length < 100) return doctors;
+    }
+  },
+  getById: async (id: number): Promise<Doctor> => {
+    const res = await api.get<Doctor>(`/doctors/${id}`, { timeout: 15000 });
+    const doctor = readDoctor(res.data);
+    if (doctor.doctor_id !== id) throw new Error('Doctor response does not match the requested profile');
+    return doctor;
+  },
+  create: async (data: DoctorCreateRequest): Promise<Doctor> => {
+    const res = await api.post<Doctor>('/doctors', data, await doctorWriteConfig());
+    const doctor = readDoctor(res.data);
+    if (doctor.staff_id !== data.staff_id) throw new Error('Doctor response does not match the selected staff record');
+    return doctor;
+  },
+  update: async (id: number, data: DoctorUpdateRequest): Promise<Doctor> => {
+    const res = await api.put<Doctor>(`/doctors/${id}`, data, await doctorWriteConfig());
+    const doctor = readDoctor(res.data);
+    if (doctor.doctor_id !== id) throw new Error('Doctor response does not match the updated profile');
+    return doctor;
+  },
   delete: (id: number) => del(`/doctors/${id}`),
 };
 
