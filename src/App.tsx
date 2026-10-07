@@ -23,7 +23,7 @@ import Insurance from './pages/Insurance';
 import Staff from './pages/Staff';
 import Branches from './pages/Branches';
 import Reports from './pages/Reports';
-import MyAppointments from './pages/MyAppointments';
+import MyAppointments from './pages/Myappointments';
 import MyBills from './pages/MyBills';
 import MyProfile from './pages/MyProfile';
 import MyPatients from './pages/MyPatients';
