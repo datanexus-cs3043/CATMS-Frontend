@@ -1005,6 +1005,41 @@ tbody td { padding: 12px 16px; color: var(--gray-700); vertical-align: middle; }
 .or-rule { display: flex; align-items: center; gap: 12px; color: var(--gray-500); font-size: var(--font-size-xs); margin: 24px 0 14px; }
 .or-rule::before, .or-rule::after { content: ''; flex: 1; height: 1px; background: var(--gray-200); }
 
+.auth-switch-prompt {
+  margin-top: 20px;
+  text-align: center;
+  font-size: var(--font-size-sm);
+  color: var(--gray-600);
+}
+.auth-switch-btn {
+  background: none !important;
+  background-color: transparent !important;
+  border: none !important;
+  outline: none !important;
+  box-shadow: none !important;
+  color: var(--primary) !important;
+  font-weight: 600;
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+  padding: 0 !important;
+  margin-left: 4px;
+  display: inline;
+  vertical-align: baseline;
+  font-family: inherit;
+  line-height: inherit;
+  text-decoration: none;
+  transition: color 0.15s ease, text-decoration 0.15s ease;
+}
+.auth-switch-btn:hover {
+  text-decoration: underline !important;
+  color: var(--primary-dark) !important;
+}
+.auth-switch-btn:focus-visible {
+  text-decoration: underline !important;
+  outline: 2px solid var(--primary-200) !important;
+  border-radius: 2px;
+}
+
 /* ════════════════════════════════════════════════════════════════════
    RESPONSIVE
    ════════════════════════════════════════════════════════════════════ */

@@ -252,11 +252,11 @@ export const Login: React.FC = () => {
                 </button>
               </form>
 
-              <div className="mt-4 text-center">
-                <span className="text-sm text-gray-500">Need a patient account? </span>
+              <div className="auth-switch-prompt">
+                <span>Need a patient account? </span>
                 <button
                   type="button"
-                  className="text-sm font-semibold text-primary hover:underline bg-transparent border-0 cursor-pointer p-0"
+                  className="auth-switch-btn"
                   onClick={() => switchTab('register')}
                 >
                   Register here
@@ -501,11 +501,11 @@ export const Login: React.FC = () => {
                 )}
               </form>
 
-              <div className="mt-4 text-center">
-                <span className="text-sm text-gray-500">Already registered? </span>
+              <div className="auth-switch-prompt">
+                <span>Already registered? </span>
                 <button
                   type="button"
-                  className="text-sm font-semibold text-primary hover:underline bg-transparent border-0 cursor-pointer p-0"
+                  className="auth-switch-btn"
                   onClick={() => switchTab('login')}
                 >
                   Sign in here
