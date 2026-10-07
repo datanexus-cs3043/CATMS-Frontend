@@ -10,7 +10,7 @@ import {
   Appointment,
   Branch,
 } from '../services/api';
-import { localDate } from '../services/mockData';
+import { localDate } from '../utils/date';
 import { HeroSlider, Slide } from '../components/HeroSlider';
 import { statusBadge } from './Appointments';
 

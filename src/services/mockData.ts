@@ -9,13 +9,8 @@
 import type { AuthUser } from './api';
 
 // ── Date helpers (local time, not UTC) ────────────────────────────────────────
-export const localDate = (offsetDays = 0): string => {
-  const d = new Date();
-  d.setDate(d.getDate() + offsetDays);
-  const mm = String(d.getMonth() + 1).padStart(2, '0');
-  const dd = String(d.getDate()).padStart(2, '0');
-  return `${d.getFullYear()}-${mm}-${dd}`;
-};
+export { localDate } from '../utils/date';
+import { localDate } from '../utils/date';
 
 const thisYear = new Date().getFullYear();
 

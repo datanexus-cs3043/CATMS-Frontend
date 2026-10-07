@@ -5,7 +5,7 @@ import {
   Invoice, InvoiceItem, InsuranceClaim, InsurancePolicy, Payment,
 } from '../services/api';
 import { useAuth } from '../auth/AuthContext';
-import { localDate } from '../services/mockData';
+import { localDate } from '../utils/date';
 import { invoiceStatusBadge } from './Invoices';
 
 const money = (n?: number) => `Rs. ${Number(n ?? 0).toLocaleString()}`;
