@@ -1,5 +1,4 @@
 import axios from 'axios';
-import { handleLocalRequest, LocalHttpError } from './localDb';
 
 // ── Role & Type definitions ──────────────────────────────────────────────────
 export type UserRole = 'admin' | 'branch_manager' | 'doctor' | 'receptionist_cashier' | 'patient';
@@ -301,43 +300,6 @@ const api = axios.create({
   withCredentials: true,
   headers: { 'Content-Type': 'application/json' },
 });
-
-// ── Offline / not-yet-implemented endpoints → local data store ────────────────
-// The backend currently implements only auth. Any request that fails because
-// the server is unreachable, or because the endpoint does not exist yet
-// (404/405/501), is answered by the local store, which applies the same
-// role-based access rules the API is expected to enforce.
-const shouldUseLocalStore = (error: any): boolean => {
-  if (!error?.config) return false;
-  if (!error.response) return true; // network error: backend not running
-  const url: string = error.config.url || '';
-  if (url.startsWith('/auth/')) return false; // real auth answers are authoritative
-  return [404, 405, 501].includes(error.response.status);
-};
-
-api.interceptors.response.use(
-  res => res,
-  async (error) => {
-    if (!shouldUseLocalStore(error)) throw error;
-    const cfg = error.config;
-    let body: any = cfg.data;
-    if (typeof body === 'string') {
-      try { body = JSON.parse(body); } catch { body = {}; }
-    }
-    try {
-      const data = handleLocalRequest((cfg.method || 'get').toUpperCase(), cfg.url || '', cfg.params || {}, body || {});
-      return { data, status: 200, statusText: 'OK', headers: {}, config: cfg };
-    } catch (e) {
-      if (e instanceof LocalHttpError) {
-        const err: any = new Error(e.detail);
-        err.response = { status: e.status, data: { detail: e.detail } };
-        err.config = cfg;
-        throw err;
-      }
-      throw e;
-    }
-  }
-);
 
 /** Extract a readable message from an API error. */
 export const apiErrorMessage = (err: any, fallback = 'Something went wrong. Please try again.'): string => {
