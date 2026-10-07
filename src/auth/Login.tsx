@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { useAuth } from './AuthContext';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 
 
 type Tab = 'login' | 'register';
@@ -22,8 +22,9 @@ const apiErrorMessage = (error: unknown, fallback: string) => {
 export const Login: React.FC = () => {
   const { login, user } = useAuth();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   
-  const [tab, setTab] = useState<Tab>('login');
+  const [tab, setTab] = useState<Tab>(searchParams.get('tab') === 'register' ? 'register' : 'login');
 
   const [loginForm, setLoginForm] = useState({ username: '', password: '' });
   const [loginError, setLoginError] = useState('');
@@ -45,7 +46,7 @@ export const Login: React.FC = () => {
 
 
   useEffect(() => {
-    if (user) navigate('/', { replace: true });
+    if (user) navigate('/dashboard', { replace: true });
   }, [user, navigate]);
 
   const switchTab = (t: Tab) => {
@@ -57,8 +58,8 @@ export const Login: React.FC = () => {
     setLoginLoading(true);
     setLoginError('');
     try {
-      await login(loginForm);
-      navigate('/');
+      await login(loginForm.username, loginForm.password);
+      navigate('/dashboard');
     } catch (err) {
       setLoginError(apiErrorMessage(err, 'Incorrect username or password.'));
     } finally {
