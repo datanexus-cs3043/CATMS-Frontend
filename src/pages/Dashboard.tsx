@@ -293,12 +293,12 @@ export default function Dashboard() {
         </div>
       </div>
 
-      <div className="mt-5 grid grid-cols-[repeat(auto-fit,minmax(200px,1fr))] gap-4">
+      <div className="branch-strip">
         {branches.map(b => (
-          <div key={b.branch_id} className="rounded-lg border border-gray-200 bg-white px-[18px] py-4">
-            <div className="eyebrow mb-1">Branch</div>
-            <div className="font-display text-lg font-semibold text-gray-900">{b.branch_name}</div>
-            <div className="mt-0.5 text-xs text-gray-500">{b.location} · {b.contact_details}</div>
+          <div key={b.branch_id} className="branch-tile">
+            <div className="eyebrow">Branch</div>
+            <div className="branch-tile-name">{b.branch_name}</div>
+            <div className="branch-tile-meta">{b.location} · {b.contact_details}</div>
           </div>
         ))}
       </div>

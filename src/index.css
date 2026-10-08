@@ -784,6 +784,21 @@ tbody td { padding: 12px 16px; color: var(--gray-700); vertical-align: middle; }
   width: 100%;
 }
 
+.branch-strip {
+  margin-top: 20px;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+}
+
+@media (max-width: 768px) {
+  .branch-strip {
+    grid-template-columns: 1fr;
+  }
+}
+
+
+
 .action-item:last-child {
   border-bottom: none;
 }
