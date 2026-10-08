@@ -797,7 +797,14 @@ tbody td { padding: 12px 16px; color: var(--gray-700); vertical-align: middle; }
   }
 }
 
-
+.branch-tile {
+  background: #fff;
+  border: 1px solid var(--gray-200);
+  border-radius: var(--radius-lg);
+  padding: 16px 20px;
+  box-shadow: var(--shadow-sm);
+  transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
+}
 
 .action-item:last-child {
   border-bottom: none;
