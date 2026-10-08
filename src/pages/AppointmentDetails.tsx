@@ -11,8 +11,8 @@ import { statusBadge } from './Appointments';
 export default function AppointmentDetails() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { isAdmin, isCashier, isDoctor, isPatient, user } = useAuth();
-  const isStaff = isAdmin || isCashier;
+  const { isAdmin, isManager, isCashier, isDoctor, isPatient, user } = useAuth();
+  const isStaff = isAdmin || isManager || isCashier;
 
   const [appt, setAppt] = useState<Appointment | null>(null);
   const [loadError, setLoadError] = useState('');

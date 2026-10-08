@@ -73,7 +73,7 @@ const SLIDES: Record<string, Slide[]> = {
 };
 
 export default function Dashboard() {
-  const { user, isAdmin, isCashier, isDoctor, isPatient } = useAuth();
+  const { user, isAdmin, isManager, isCashier, isDoctor, isPatient } = useAuth();
   const navigate = useNavigate();
   const [stats, setStats] = useState<DashStats>({ totalPatients: 0, totalDoctors: 0, todayAppointments: 0, pendingInvoices: 0, upcoming: 0, outstanding: 0 });
   const [appointments, setAppointments] = useState<Appointment[]>([]);
@@ -81,7 +81,7 @@ export default function Dashboard() {
   const [isLoading, setIsLoading] = useState(true);
 
   const today = localDate(0);
-  const staffView = isAdmin || isCashier;
+  const staffView = isAdmin || isManager || isCashier;
   const personalView = isDoctor || isPatient;
   const firstName = user?.first_name || user?.username || '';
 

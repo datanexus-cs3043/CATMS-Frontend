@@ -11,8 +11,8 @@ import { useAuth } from '../auth/AuthContext';
 export default function PatientDetails() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { isAdmin, isCashier, isDoctor } = useAuth();
-  const canEdit = isAdmin || isCashier;
+  const { isAdmin, isManager, isCashier, isDoctor } = useAuth();
+  const canEdit = isAdmin || isManager || isCashier;
 
   const [patient, setPatient] = useState<Patient | null>(null);
   const [appointments, setAppointments] = useState<Appointment[]>([]);

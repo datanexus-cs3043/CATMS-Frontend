@@ -148,7 +148,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return roles.includes(user.role as UserRole);
   };
 
-  const isAdmin    = user?.role === 'admin' || user?.role === 'branch_manager';
+  const isAdmin    = user?.role === 'admin';
   const isCashier  = user?.role === 'receptionist_cashier';
   const isDoctor   = user?.role === 'doctor';
   const isPatient  = user?.role === 'patient';

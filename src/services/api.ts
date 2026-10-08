@@ -302,6 +302,27 @@ const api = axios.create({
   headers: { 'Content-Type': 'application/json' },
 });
 
+let cachedCsrfToken = '';
+
+api.interceptors.request.use(async (config) => {
+  const method = (config.method || '').toUpperCase();
+  if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(method)) {
+    if (!cachedCsrfToken) {
+      try {
+        const base = config.baseURL || 'http://localhost:8000/api';
+        const res = await axios.get(`${base}/auth/csrf`, { withCredentials: true });
+        cachedCsrfToken = res.data?.csrf_token || '';
+      } catch {
+        // Backend offline or unreachable
+      }
+    }
+    if (cachedCsrfToken) {
+      config.headers['X-CSRF-Token'] = cachedCsrfToken;
+    }
+  }
+  return config;
+});
+
 // ── Offline / not-yet-implemented endpoints → local data store ────────────────
 // The backend currently implements only auth. Any request that fails because
 // the server is unreachable, or because the endpoint does not exist yet

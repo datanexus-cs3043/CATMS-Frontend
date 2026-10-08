@@ -13,7 +13,8 @@ const roleColor: Record<string, { color: string; bg: string }> = {
 
 
 export default function Staff() {
-  const { isAdmin } = useAuth();
+  const { isAdmin, isManager, user } = useAuth();
+  const canManageStaff = isAdmin || isManager;
   const [staffList, setStaffList] = useState<Staff[]>([]);
   const [branches, setBranches] = useState<Branch[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -91,8 +92,16 @@ export default function Staff() {
             <option>Manager</option>
             <option>Nurse</option>
           </select>
-          {isAdmin && (
-            <button className="btn btn-primary" onClick={() => { setForm(blankForm); setShowModal(true); setError(''); }}>
+          {canManageStaff && (
+            <button
+              className="btn btn-primary"
+              onClick={() => {
+                const defaultBranch = isManager && user?.branch_id ? user.branch_id : 1;
+                setForm({ ...blankForm, branch_id: defaultBranch });
+                setShowModal(true);
+                setError('');
+              }}
+            >
               Add Staff
             </button>
           )}
@@ -210,8 +219,8 @@ export default function Staff() {
                       <option>Nurse</option>
                       <option>Receptionist</option>
                       <option>Cashier</option>
-                      <option>Manager</option>
-                      <option>Admin</option>
+                      {isAdmin && <option>Manager</option>}
+                      {isAdmin && <option>Admin</option>}
                     </select>
                   </div>
                 </div>
@@ -223,9 +232,17 @@ export default function Staff() {
                 )}
                 <div className="form-group">
                   <label className="form-label">Branch *</label>
-                  <select className="form-control" required value={form.branch_id || 1} onChange={e => setForm({...form, branch_id: Number(e.target.value)})}>
-                    {branches.map(b => <option key={b.branch_id} value={b.branch_id}>{b.branch_name}</option>)}
-                  </select>
+                  {isManager && user?.branch_id ? (
+                    <select className="form-control" disabled value={user.branch_id}>
+                      {branches.filter(b => b.branch_id === user.branch_id).map(b => (
+                        <option key={b.branch_id} value={b.branch_id}>{b.branch_name}</option>
+                      ))}
+                    </select>
+                  ) : (
+                    <select className="form-control" required value={form.branch_id || 1} onChange={e => setForm({...form, branch_id: Number(e.target.value)})}>
+                      {branches.map(b => <option key={b.branch_id} value={b.branch_id}>{b.branch_name}</option>)}
+                    </select>
+                  )}
                 </div>
               </div>
               <div className="modal-footer">

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { invoiceService, appointmentService, apiErrorMessage, Invoice, Appointment } from '../services/api';
+import { useAuth } from '../auth/AuthContext';
 
 export const invoiceStatusBadge = (status: string) => {
   if (status === 'Paid') return <span className="badge badge-success">{status}</span>;
@@ -14,6 +15,8 @@ const money = (n?: number) => `Rs. ${Number(n ?? 0).toLocaleString()}`;
 export default function Invoices() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
+  const { user } = useAuth();
+  const canBill = user?.role === 'admin' || user?.role === 'receptionist_cashier';
 
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [billable, setBillable] = useState<Appointment[]>([]);
@@ -146,9 +149,11 @@ export default function Invoices() {
             <option>Partially Paid</option>
             <option>Unpaid</option>
           </select>
-          <button className="btn btn-primary" onClick={() => { setGenerateError(''); setShowGenerate(true); }}>
-            Create Invoice {billable.length > 0 && <span className="badge" style={{ background: 'rgba(255,255,255,0.25)', color: 'white' }}>{billable.length}</span>}
-          </button>
+          {canBill && (
+            <button className="btn btn-primary" onClick={() => { setGenerateError(''); setShowGenerate(true); }}>
+              Create Invoice {billable.length > 0 && <span className="badge" style={{ background: 'rgba(255,255,255,0.25)', color: 'white' }}>{billable.length}</span>}
+            </button>
+          )}
         </div>
       </div>
 
@@ -196,7 +201,7 @@ export default function Invoices() {
                     <td onClick={e => e.stopPropagation()}>
                       <div style={{ display: 'flex', gap: 6 }}>
                         <button className="btn btn-secondary btn-sm" onClick={() => navigate(`/invoices/${inv.invoice_id}`)}>View</button>
-                        {Number(inv.balance) > 0 && (
+                        {canBill && Number(inv.balance) > 0 && (
                           <button className="btn btn-primary btn-sm" onClick={() => openPay(inv)}>Pay</button>
                         )}
                       </div>

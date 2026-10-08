@@ -1148,10 +1148,14 @@ route('GET', '/doctor-payments', (_m, p) => {
 
 // Reports (management only) 
 route('GET', '/reports/branch-appointment-summary', (_m, p) => { requireManagement(); return reportBranchSummary(p); });
+route('GET', '/reports/appointments-summary', (_m, p) => { requireManagement(); return reportBranchSummary(p); });
 route('GET', '/reports/doctor-revenue', (_m, p) => { requireManagement(); return reportDoctorRevenue(p); });
 route('GET', '/reports/outstanding-patients', () => { requireManagement(); return reportOutstanding(); });
+route('GET', '/reports/outstanding-balances', () => { requireManagement(); return reportOutstanding(); });
 route('GET', '/reports/treatment-counts', (_m, p) => { requireManagement(); return reportTreatmentCounts(p); });
+route('GET', '/reports/treatments-by-category', (_m, p) => { requireManagement(); return reportTreatmentCounts(p); });
 route('GET', '/reports/insurance-summary', (_m, p) => { requireManagement(); return reportInsuranceSummary(p); });
+route('GET', '/reports/insurance-vs-out-of-pocket', (_m, p) => { requireManagement(); return reportInsuranceSummary(p); });
 
 
 /**

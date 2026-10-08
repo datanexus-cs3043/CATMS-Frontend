@@ -14,9 +14,9 @@ const genderColor: Record<string, { color: string; bg: string }> = {
 
 export default function Patients() {
   const navigate = useNavigate();
-  const { isAdmin, isCashier } = useAuth();
+  const { isAdmin, isManager, isCashier } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
-  const canEdit = isAdmin || isCashier;
+  const canEdit = isAdmin || isManager || isCashier;
 
   const [patients, setPatients] = useState<Patient[]>([]);
   const [branches, setBranches] = useState<Branch[]>([]);
@@ -246,7 +246,7 @@ export default function Patients() {
                           >
                             View
                           </button>
-                          {(isAdmin || isCashier) && (
+                          {canEdit && (
                             <button
                               className="btn btn-ghost btn-sm"
                               onClick={() => navigate(`/appointments?patient_id=${patient.patient_id}`)}
