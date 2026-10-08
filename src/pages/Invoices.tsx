@@ -40,7 +40,7 @@ export default function Invoices() {
 
   useEffect(() => {
     loadData();
-    if (searchParams.get('new') === '1') {
+    if (searchParams.get('new') === '1' && canBill) {
       setShowGenerate(true);
       setSearchParams({}, { replace: true });
     }

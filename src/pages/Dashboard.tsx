@@ -43,7 +43,7 @@ const ACTIONS: Action[] = [
   { label: 'Book an appointment', desc: 'Schedule a patient with a doctor', path: '/appointments?new=1', roles: ['admin', 'branch_manager', 'receptionist_cashier'] },
   { label: 'Register a walk-in', desc: 'Emergency or same-day visit, no prior booking', path: '/appointments?walkin=1', roles: ['admin', 'branch_manager', 'receptionist_cashier'] },
   { label: 'Register a patient', desc: 'New record, shared across branches', path: '/patients?new=1', roles: ['admin', 'branch_manager', 'receptionist_cashier'] },
-  { label: 'Create an invoice', desc: 'Bill a completed appointment', path: '/invoices?new=1', roles: ['admin', 'branch_manager', 'receptionist_cashier'] },
+  { label: 'Create an invoice', desc: 'Bill a completed appointment', path: '/invoices?new=1', roles: ['admin', 'receptionist_cashier'] },
   { label: 'Review insurance claims', desc: 'Approve or reject pending claims', path: '/insurance', roles: ['admin', 'branch_manager', 'receptionist_cashier'] },
   { label: 'Management reports', desc: 'Revenue, dues, treatments, coverage', path: '/reports', roles: ['admin', 'branch_manager'] },
   { label: 'Book an appointment', desc: 'Choose a doctor and a time that suits you', path: '/my-appointments?book=1', roles: ['patient'] },
