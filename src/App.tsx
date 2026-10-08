@@ -39,11 +39,11 @@ const AppLayout: React.FC = () => {
   }, [location.pathname]);
 
   return (
-    <div className="flex min-h-screen bg-off-white">
+    <div className="app-shell">
       <Sidebar open={navOpen} onClose={() => setNavOpen(false)} />
-      <div className="flex min-w-0 flex-1 flex-col">
+      <div className="app-main">
         <Navbar onMenu={() => setNavOpen(true)} />
-        <main className="mx-auto w-full max-w-[1440px] flex-1 animate-fade-in px-8 pt-7 pb-10 max-lg:px-5 max-lg:pt-6 max-lg:pb-9 max-sm:px-3.5 max-sm:pt-[18px] max-sm:pb-8" key={location.pathname}>
+        <main className="app-content" key={location.pathname}>
           <Outlet />
         </main>
       </div>

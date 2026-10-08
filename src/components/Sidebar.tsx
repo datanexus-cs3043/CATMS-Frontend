@@ -70,22 +70,12 @@ const PATIENT_NAV: NavSection[] = [
   ]},
 ];
 
-export const ROLE_LABEL: Record<string, string> = {
-  admin: 'Administrator',
-  branch_manager: 'Branch Manager',
-  doctor: 'Doctor',
-  receptionist_cashier: 'Receptionist / Cashier',
-  patient: 'Patient',
-};
-
 export const Sidebar: React.FC<{ open: boolean; onClose: () => void }> = ({ open, onClose }) => {
   const { user, logout } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
 
   const role = user?.role || '';
-  const fullName = [user?.first_name, user?.last_name].filter(Boolean).join(' ') || user?.username || 'User';
-  const initials = fullName.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2);
 
   const sections =
     role === 'admin' || role === 'branch_manager' ? ADMIN_NAV :
@@ -126,13 +116,6 @@ export const Sidebar: React.FC<{ open: boolean; onClose: () => void }> = ({ open
         </nav>
 
         <div className="sidebar-footer">
-          <div className="sidebar-user">
-            <div className="avatar">{initials}</div>
-            <div style={{ minWidth: 0 }}>
-              <div className="sidebar-user-name">{fullName}</div>
-              <div className="sidebar-user-role">{ROLE_LABEL[role] || role}</div>
-            </div>
-          </div>
           <button className="btn btn-ghost btn-sm w-full" onClick={() => { logout(); navigate('/login'); }}>
             Sign out
           </button>
