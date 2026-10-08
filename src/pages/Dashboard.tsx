@@ -14,6 +14,20 @@ import { localDate } from '../utils/date';
 import { HeroSlider, Slide } from '../components/HeroSlider';
 import { statusBadge } from './Appointments';
 
+import {
+  CalendarPlus,
+  Zap,
+  UserPlus,
+  Receipt,
+  ShieldCheck,
+  BarChart3,
+  Search,
+  Calendar,
+  Users,
+  UserCheck,
+  ChevronRight,
+} from 'lucide-react';
+
 interface DashStats {
   totalPatients: number;
   totalDoctors: number;
@@ -70,6 +84,34 @@ const SLIDES: Record<string, Slide[]> = {
     { eyebrow: 'Clear billing', title: 'Know what you owe, and what insurance paid.', body: 'Each visit shows whether it is paid, with insurance deductions itemised on your bill.' },
     { eyebrow: 'One record', title: 'Visit any branch — your history comes with you.', body: 'Your appointments, emergency contacts and insurance details are shared across MedSync.' },
   ],
+};
+
+const getActionIcon = (label: string) => {
+  switch (label) {
+    case 'Book an appointment':
+      return <CalendarPlus size={18} />;
+    case 'Register a walk-in':
+      return <Zap size={18} />;
+    case 'Register a patient':
+      return <UserPlus size={18} />;
+    case 'Create an invoice':
+    case 'My bills':
+      return <Receipt size={18} />;
+    case 'Review insurance claims':
+      return <ShieldCheck size={18} />;
+    case 'Management reports':
+      return <BarChart3 size={18} />;
+    case 'Find a doctor':
+      return <Search size={18} />;
+    case "Today's schedule":
+      return <Calendar size={18} />;
+    case 'My patients':
+      return <Users size={18} />;
+    case 'My profile':
+      return <UserCheck size={18} />;
+    default:
+      return <CalendarPlus size={18} />;
+  }
 };
 
 export default function Dashboard() {
@@ -178,17 +220,28 @@ export default function Dashboard() {
         </div>
       )}
 
-      <div className="grid grid-cols-[minmax(260px,1fr)_minmax(0,2fr)] items-start gap-5 max-[1100px]:grid-cols-1">
+      <div className="dash-grid">
         <div className="card">
-          <div className="card-header"><h3 className="card-title">Quick actions</h3></div>
-          <div className="flex flex-col">
+          <div className="card-header">
+            <h3 className="card-title">Quick actions</h3>
+          </div>
+          <div className="action-list">
             {actions.map(a => (
-              <button key={a.path + a.label} className="group flex items-center justify-between gap-3 border-0 border-b border-gray-100 bg-white px-5 py-[13px] text-left transition-[background-color,padding] duration-200 last:border-b-0 hover:bg-primary-50 hover:pl-6" onClick={() => navigate(a.path)}>
-                <span>
-                  <span className="block text-base font-medium text-gray-900">{a.label}</span>
-                  <span className="mt-px block text-xs text-gray-500">{a.desc}</span>
-                </span>
-                <span className="text-lg text-gray-400 transition-[color,translate] duration-200 group-hover:translate-x-[3px] group-hover:text-primary" aria-hidden>›</span>
+              <button
+                key={a.path + a.label}
+                className="action-item"
+                onClick={() => navigate(a.path)}
+              >
+                <div className="action-item-left">
+                  <div className="action-icon">
+                    {getActionIcon(a.label)}
+                  </div>
+                  <div className="action-item-content">
+                    <span className="action-item-title">{a.label}</span>
+                    <span className="action-item-desc">{a.desc}</span>
+                  </div>
+                </div>
+                <ChevronRight className="action-item-arrow" size={18} />
               </button>
             ))}
           </div>
