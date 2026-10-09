@@ -220,7 +220,7 @@ export default function PatientDetails() {
             <div className="empty-state">
               <p className="empty-state-title">No insurance policies</p>
               <p className="empty-state-desc">Patient has no active insurance policies.</p>
-              {canEdit && <button className="btn btn-primary" onClick={() => navigate('/insurance')}>Add Policy</button>}
+              {(isAdmin || isCashier) && <button className="btn btn-primary" onClick={() => navigate('/insurance')}>Add Policy</button>}
             </div>
           ) : (
             <div className="table-container">

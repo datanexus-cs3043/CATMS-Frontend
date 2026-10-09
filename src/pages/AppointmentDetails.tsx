@@ -126,7 +126,7 @@ export default function AppointmentDetails() {
   const isTreatingDoctor = isDoctor && appt.doctor_id === user?.doctor_id;
   const canManage = isStaff || (isPatient && appt.patient_id === user?.patient_id);
   const canComplete = isScheduled && appt.appointment_date <= today && (isStaff || isTreatingDoctor);
-  const canRecordTreatments = isCompleted && !invoice && (isStaff || isTreatingDoctor);
+  const canRecordTreatments = isCompleted && !invoice && (isAdmin || isTreatingDoctor);
   const canAddNotes = appt.status !== 'Cancelled' && (isTreatingDoctor || isAdmin);
   const treatmentsTotal = recorded.reduce((s, t) => s + Number(t.unit_price || 0) * t.quantity, 0);
 

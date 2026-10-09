@@ -472,24 +472,24 @@ export const patientService = {
 
 // ── Insurance Service ─────────────────────────────────────────────────────────
 export const insuranceService = {
-  getProviders: () => get<InsuranceProvider[]>('/insurance-providers'),
-  createProvider: (data: Partial<InsuranceProvider>) => post<InsuranceProvider>('/insurance-providers', data),
+  getProviders: () => get<InsuranceProvider[]>('/insurance/providers'),
+  createProvider: (data: Partial<InsuranceProvider>) => post<InsuranceProvider>('/insurance/providers', data),
   getPolicies: (params?: { patient_id?: number; status?: string }) =>
-    get<InsurancePolicy[]>('/insurance-policies', params as Record<string, unknown>),
-  getPolicyById: (id: number) => get<InsurancePolicy>(`/insurance-policies/${id}`),
-  createPolicy: (data: Partial<InsurancePolicy>) => post<InsurancePolicy>('/insurance-policies', data),
+    get<InsurancePolicy[]>('/insurance/policies', params as Record<string, unknown>),
+  getPolicyById: (id: number) => get<InsurancePolicy>(`/insurance/policies/${id}`),
+  createPolicy: (data: Partial<InsurancePolicy>) => post<InsurancePolicy>('/insurance/policies', data),
   updatePolicy: (id: number, data: Partial<InsurancePolicy>) =>
-    put<InsurancePolicy>(`/insurance-policies/${id}`, data),
+    put<InsurancePolicy>(`/insurance/policies/${id}`, data),
   getCoverageByPolicy: (policyId: number) =>
-    get<InsuranceCoverage[]>(`/insurance-policies/${policyId}/coverages`),
+    get<InsuranceCoverage[]>(`/insurance/policies/${policyId}/coverages`),
   addCoverage: (policyId: number, data: Partial<InsuranceCoverage>) =>
-    post<InsuranceCoverage>(`/insurance-policies/${policyId}/coverages`, data),
+    post<InsuranceCoverage>(`/insurance/policies/${policyId}/coverages`, data),
   getClaims: (params?: { status?: string; invoice_id?: number }) =>
-    get<InsuranceClaim[]>('/insurance-claims', params as Record<string, unknown>),
-  getClaimById: (id: number) => get<InsuranceClaim>(`/insurance-claims/${id}`),
-  createClaim: (data: Partial<InsuranceClaim>) => post<InsuranceClaim>('/insurance-claims', data),
+    get<InsuranceClaim[]>('/insurance/claims', params as Record<string, unknown>),
+  getClaimById: (id: number) => get<InsuranceClaim>(`/insurance/claims/${id}`),
+  createClaim: (data: Partial<InsuranceClaim>) => post<InsuranceClaim>('/insurance/claims', data),
   updateClaim: (id: number, data: Partial<InsuranceClaim>) =>
-    put<InsuranceClaim>(`/insurance-claims/${id}`, data),
+    put<InsuranceClaim>(`/insurance/claims/${id}`, data),
 };
 
 // ── Appointment Service ───────────────────────────────────────────────────────
@@ -540,15 +540,15 @@ export const invoiceService = {
 // ── Reports Service ───────────────────────────────────────────────────────────
 export const reportsService = {
   getBranchAppointmentSummary: (params?: { date?: string; branch_id?: number }) =>
-    get<BranchAppointmentSummary[]>('/reports/branch-appointment-summary', params as Record<string, unknown>),
+    get<BranchAppointmentSummary[]>('/reports/appointments-summary', params as Record<string, unknown>),
   getDoctorRevenue: (params?: { from_date?: string; to_date?: string }) =>
     get<DoctorRevenueReport[]>('/reports/doctor-revenue', params as Record<string, unknown>),
   getOutstandingPatients: () =>
-    get<OutstandingPatient[]>('/reports/outstanding-patients'),
+    get<OutstandingPatient[]>('/reports/outstanding-balances'),
   getTreatmentCounts: (params?: { from_date?: string; to_date?: string }) =>
-    get<TreatmentCountReport[]>('/reports/treatment-counts', params as Record<string, unknown>),
+    get<TreatmentCountReport[]>('/reports/treatments-by-category', params as Record<string, unknown>),
   getInsuranceSummary: (params?: { from_date?: string; to_date?: string }) =>
-    get<InsuranceSummary>('/reports/insurance-summary', params as Record<string, unknown>),
+    get<InsuranceSummary>('/reports/insurance-vs-out-of-pocket', params as Record<string, unknown>),
 };
 
 export default api;

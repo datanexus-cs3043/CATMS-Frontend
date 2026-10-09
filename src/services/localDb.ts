@@ -858,6 +858,7 @@ route('GET', '/patients/:id/insurance-policies', m => {
 
 // Insurance 
 route('GET', '/insurance-providers', () => { me(); return getDb().insurance_providers; });
+route('GET', '/insurance/providers', () => { me(); return getDb().insurance_providers; });
 route('POST', '/insurance-providers', (_m, _p, b) => {
   requireFrontDesk();
   const d = getDb();
@@ -867,7 +868,16 @@ route('POST', '/insurance-providers', (_m, _p, b) => {
   d.insurance_providers.push(row);
   return row;
 });
-route('GET', '/insurance-policies', (_m, p) => {
+route('POST', '/insurance/providers', (_m, _p, b) => {
+  requireFrontDesk();
+  const d = getDb();
+  if (!text(b.provider_name)) fail(400, 'Provider name is required.');
+  if (d.insurance_providers.some(p => p.provider_name.toLowerCase() === text(b.provider_name).toLowerCase())) fail(409, 'Provider already exists.');
+  const row = { provider_id: nextId(d.insurance_providers, 'provider_id'), provider_name: text(b.provider_name), contact_details: text(b.contact_details) };
+  d.insurance_providers.push(row);
+  return row;
+});
+const getInsurancePoliciesHandler = (_m: any, p: Row) => {
   const u = me();
   let list = getDb().insurance_policies;
   if (u.role === 'patient') list = list.filter(x => x.patient_id === u.patient_id);
@@ -875,7 +885,9 @@ route('GET', '/insurance-policies', (_m, p) => {
   if (p.patient_id) list = list.filter(x => x.patient_id === Number(p.patient_id));
   if (p.status) list = list.filter(x => x.status === p.status);
   return list.map(policyView);
-});
+};
+route('GET', '/insurance-policies', getInsurancePoliciesHandler);
+route('GET', '/insurance/policies', getInsurancePoliciesHandler);
 route('POST', '/insurance-policies', (_m, _p, b) => {
   requireFrontDesk();
   const d = getDb();
@@ -917,7 +929,7 @@ route('POST', '/insurance-policies/:id/coverages', (m, _p, b) => {
   d.insurance_coverages.push(row);
   return { ...row, treatment_name: findTreatment(row.treatment_id)?.treatment_name };
 });
-route('GET', '/insurance-claims', (_m, p) => {
+const getInsuranceClaimsHandler = (_m: any, p: Row) => {
   const u = me();
   let list = getDb().insurance_claims;
   if (u.role === 'patient') list = list.filter(c => canSeeInvoice(u, findInvoice(c.invoice_id)!));
@@ -925,7 +937,9 @@ route('GET', '/insurance-claims', (_m, p) => {
   if (p.status) list = list.filter(c => c.status === p.status);
   if (p.invoice_id) list = list.filter(c => c.invoice_id === Number(p.invoice_id));
   return list.map(claimView);
-});
+};
+route('GET', '/insurance-claims', getInsuranceClaimsHandler);
+route('GET', '/insurance/claims', getInsuranceClaimsHandler);
 route('POST', '/insurance-claims', (_m, _p, b) => {
   requireFrontDesk();
   const d = getDb();

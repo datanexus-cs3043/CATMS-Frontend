@@ -4,6 +4,7 @@ import {
   appointmentService, patientService, doctorService, branchService, treatmentService,
   apiErrorMessage, Appointment, Patient, Doctor, Branch, Treatment
 } from '../services/api';
+import { useAuth } from '../auth/AuthContext';
 import { localDate } from '../services/mockData';
 
 const typeBadge = (type: string) => {
@@ -22,9 +23,10 @@ const nowHHMM = (offsetMinutes = 0) => {
   return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
 };
 
-const emptyForm = (walkIn: boolean, patientId?: number, doctorId?: number): Partial<Appointment> => ({
+const emptyForm = (walkIn: boolean, patientId?: number, doctorId?: number, branchId?: number): Partial<Appointment> => ({
   patient_id: patientId,
   doctor_id: doctorId,
+  branch_id: branchId,
   appointment_date: localDate(0),
   start_time: walkIn ? nowHHMM() : '09:00',
   end_time: walkIn ? nowHHMM(30) : '09:30',
@@ -33,6 +35,7 @@ const emptyForm = (walkIn: boolean, patientId?: number, doctorId?: number): Part
 
 export default function Appointments() {
   const navigate = useNavigate();
+  const { user } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
 
   const [appointments, setAppointments] = useState<Appointment[]>([]);
@@ -48,7 +51,7 @@ export default function Appointments() {
   const [filterStatus, setFilterStatus] = useState('');
   const [showModal, setShowModal] = useState(false);
   const [walkIn, setWalkIn] = useState(false);
-  const [form, setForm] = useState<Partial<Appointment>>(emptyForm(false));
+  const [form, setForm] = useState<Partial<Appointment>>(emptyForm(false, undefined, undefined, user?.branch_id || 1));
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
@@ -87,7 +90,9 @@ export default function Appointments() {
 
   const openModal = (asWalkIn: boolean, patientId?: number, doctorId?: number) => {
     setWalkIn(asWalkIn);
-    setForm(emptyForm(asWalkIn, patientId, doctorId));
+    const doc = doctorId ? doctors.find(d => d.doctor_id === doctorId) : undefined;
+    const branchId = doc?.branch_id || user?.branch_id || 1;
+    setForm(emptyForm(asWalkIn, patientId, doctorId, branchId));
     setError('');
     setShowModal(true);
   };
@@ -273,7 +278,20 @@ export default function Appointments() {
                   </div>
                   <div className="form-group">
                     <label className="form-label">Doctor *</label>
-                    <select className="form-control" required value={form.doctor_id || ''} onChange={e => setForm({ ...form, doctor_id: Number(e.target.value) || undefined })}>
+                    <select
+                      className="form-control"
+                      required
+                      value={form.doctor_id || ''}
+                      onChange={e => {
+                        const docId = Number(e.target.value) || undefined;
+                        const doc = doctors.find(d => d.doctor_id === docId);
+                        setForm({
+                          ...form,
+                          doctor_id: docId,
+                          branch_id: doc?.branch_id || form.branch_id || user?.branch_id || 1,
+                        });
+                      }}
+                    >
                       <option value="">Select doctor...</option>
                       {doctors.map(d => (
                         <option key={d.doctor_id} value={d.doctor_id}>

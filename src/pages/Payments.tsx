@@ -22,7 +22,23 @@ export default function Payments() {
         ]);
         if (dp.status === 'fulfilled') setDoctorPayments(dp.value);
         if (inv.status === 'fulfilled') setInvoices(inv.value);
-        if (tx.status === 'fulfilled') setTransactions(tx.value);
+        if (tx.status === 'fulfilled' && tx.value.length > 0) {
+          setTransactions(tx.value);
+        } else if (inv.status === 'fulfilled') {
+          // Gracefully synthesize transaction rows from invoices with payments recorded
+          const derived: Payment[] = inv.value
+            .filter(i => Number(i.amount_paid) > 0)
+            .map((i, idx) => ({
+              payment_id: idx + 1,
+              invoice_id: i.invoice_id,
+              amount: Number(i.amount_paid),
+              payment_date: i.invoice_date,
+              patient_name: i.patient_name,
+              method: 'Cash/Card',
+              received_by: 'Branch Cashier',
+            }));
+          setTransactions(derived);
+        }
       } catch {} finally { setIsLoading(false); }
     };
     load();

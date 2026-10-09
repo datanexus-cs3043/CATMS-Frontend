@@ -14,7 +14,7 @@ const genderColor: Record<string, { color: string; bg: string }> = {
 
 export default function Patients() {
   const navigate = useNavigate();
-  const { isAdmin, isManager, isCashier } = useAuth();
+  const { user, isAdmin, isManager, isCashier } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
   const canEdit = isAdmin || isManager || isCashier;
 
@@ -25,10 +25,11 @@ export default function Patients() {
   const [filterBranch, setFilterBranch] = useState('');
   const [filterGender, setFilterGender] = useState('');
   const [showModal, setShowModal] = useState(false);
+  const defaultBranchId = (isManager && user?.branch_id) ? user.branch_id : 1;
   const blankForm = {
     first_name: '', last_name: '', date_of_birth: '', gender: 'Male',
     patient_type: 'Regular', contact_details: '', email: '', address: '',
-    branch_id: 1, emergency_contact_name: '', emergency_contact_relationship: '', emergency_contact_phone: '',
+    branch_id: defaultBranchId, emergency_contact_name: '', emergency_contact_relationship: '', emergency_contact_phone: '',
   };
   const [form, setForm] = useState<Record<string, any>>(blankForm);
   const [submitting, setSubmitting] = useState(false);
@@ -44,7 +45,8 @@ export default function Patients() {
   }, []);
 
   const openModal = () => {
-    setForm(blankForm);
+    const branchId = (isManager && user?.branch_id) ? user.branch_id : (branches[0]?.branch_id || user?.branch_id || 1);
+    setForm({ ...blankForm, branch_id: branchId });
     setError('');
     setShowModal(true);
   };
@@ -313,7 +315,7 @@ export default function Patients() {
                 <div className="form-row">
                   <div className="form-group">
                     <label className="form-label">Branch *</label>
-                    <select className="form-control" value={form.branch_id || 1} onChange={e => setForm({...form, branch_id: Number(e.target.value)})}>
+                    <select className="form-control" disabled={isManager} value={form.branch_id || defaultBranchId} onChange={e => setForm({...form, branch_id: Number(e.target.value)})}>
                       {branches.map(b => <option key={b.branch_id} value={b.branch_id}>{b.branch_name}</option>)}
                     </select>
                   </div>
