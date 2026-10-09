@@ -380,7 +380,15 @@ export const staffService = {
   getAll: (params?: { branch_id?: number; role?: string }) => get<Staff[]>('/staff', params as Record<string, unknown>),
   getById: (id: number) => get<Staff>(`/staff/${id}`),
   create: (data: Partial<Staff>) => post<Staff>('/staff', data),
-  update: (id: number, data: Partial<Staff>) => put<Staff>(`/staff/${id}`, data),
+  update: async (id: number, data: Partial<Staff>) => {
+    const { csrf_token } = await authService.getCsrfToken();
+    if (typeof csrf_token !== 'string' || !csrf_token) throw new Error('Unable to authorize the staff update');
+    const res = await api.put<Staff>(`/staff/${id}`, data, {
+      headers: { 'X-CSRF-Token': csrf_token },
+      timeout: 15000,
+    });
+    return res.data;
+  },
   delete: (id: number) => del(`/staff/${id}`),
 };
 
