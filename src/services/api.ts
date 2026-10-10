@@ -1,4 +1,4 @@
-import axios from 'axios';
+import axios, { type AxiosResponse, type InternalAxiosRequestConfig } from 'axios';
 
 // ── Role & Type definitions ──────────────────────────────────────────────────
 export type UserRole = 'admin' | 'branch_manager' | 'doctor' | 'receptionist_cashier' | 'patient';
@@ -304,6 +304,63 @@ const api = axios.create({
   headers: { 'Content-Type': 'application/json' },
 });
 
+// ── CSRF protection ───────────────────────────────────────────────────────────
+// The backend requires an X-CSRF-Token header on every POST/PUT/PATCH/DELETE.
+// The token is tied to the logged-in user and expires after 2 hours, so it is
+// cached here, cleared on login/logout, and refetched once if it is rejected.
+const CSRF_METHODS = ['post', 'put', 'patch', 'delete'];
+let csrfToken: string | null = null;
+let csrfRequest: Promise<string> | null = null;
+
+const clearCsrfToken = () => {
+  csrfToken = null;
+  csrfRequest = null;
+};
+
+const fetchCsrfToken = (): Promise<string> => {
+  if (csrfToken) return Promise.resolve(csrfToken);
+  if (!csrfRequest) {
+    const request: Promise<string> = api
+      .get<{ csrf_token: string }>('/auth/csrf', { timeout: 15000 })
+      .then((res: AxiosResponse<{ csrf_token: string }>) => {
+        csrfToken = res.data.csrf_token;
+        return res.data.csrf_token;
+      })
+      .finally(() => { csrfRequest = null; });
+    csrfRequest = request;
+    return request;
+  }
+  return csrfRequest;
+};
+
+const needsCsrf = (cfg: InternalAxiosRequestConfig): boolean =>
+  CSRF_METHODS.includes((cfg.method || 'get').toLowerCase()) &&
+  !(cfg.url || '').startsWith('/auth/') &&
+  !cfg.headers.has('X-CSRF-Token');
+
+const isCsrfRejection = (error: any): boolean =>
+  error?.response?.status === 403 &&
+  String(error.response.data?.detail || '').toLowerCase().includes('csrf');
+
+api.interceptors.request.use(async (cfg: InternalAxiosRequestConfig) => {
+  if (needsCsrf(cfg)) cfg.headers.set('X-CSRF-Token', await fetchCsrfToken());
+  return cfg;
+});
+
+// Expired or stale CSRF token: get a fresh one and retry the request once.
+api.interceptors.response.use(
+  res => res,
+  async (error) => {
+    if (isCsrfRejection(error) && error.config && !error.config._csrfRetried) {
+      clearCsrfToken();
+      error.config._csrfRetried = true;
+      error.config.headers.delete('X-CSRF-Token');
+      return api.request(error.config);
+    }
+    throw error;
+  }
+);
+
 /** Extract a readable message from an API error. */
 export const apiErrorMessage = (err: any, fallback = 'Something went wrong. Please try again.'): string => {
   const detail = err?.response?.data?.detail;
@@ -325,6 +382,7 @@ const isAuthUser = (value: unknown): value is AuthUser => {
 
 export const authService = {
   login: async (credentials: { username: string; password: string }): Promise<LoginResponse> => {
+    clearCsrfToken();
     const res = await api.post<LoginResponse>('/auth/login', credentials, { timeout: 15000 });
     if (!isAuthUser(res.data?.user)) throw new Error('Invalid sign-in response');
     return res.data;
@@ -339,6 +397,7 @@ export const authService = {
     return res.data;
   },
   logout: async (): Promise<{ message: string }> => {
+    clearCsrfToken();
     const res = await api.post<{ message: string }>('/auth/logout');
     return res.data;
   },
