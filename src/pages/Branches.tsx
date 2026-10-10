@@ -37,6 +37,32 @@ export default function Branches() {
     }
   };
 
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSubmitting(true);
+    setError('');
+    try {
+      await branchService.create(form);
+      setShowModal(false);
+      setForm({ branch_name: '', location: '', contact_details: '' });
+      loadData();
+    } catch (err: any) {
+      setError(err?.response?.data?.detail || 'Failed to create branch');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const staffByBranch = useMemo(() => {
+    const map = new Map<number, Staff[]>();
+    staffList.forEach((s) => {
+      const list = map.get(s.branch_id) ?? [];
+      list.push(s);
+      map.set(s.branch_id, list);
+    });
+    return map;
+  }, [staffList]);
+
   
 
 
