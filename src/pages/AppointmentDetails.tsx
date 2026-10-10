@@ -13,6 +13,8 @@ export default function AppointmentDetails() {
   const navigate = useNavigate();
   const { isAdmin, isCashier, isDoctor, isPatient, user } = useAuth();
   const isStaff = isAdmin || isCashier;
+  // Consultation notes are clinical records: the backend serves them only to admin, manager and doctors.
+  const canViewNotes = !isCashier && !isPatient;
 
   const [appt, setAppt] = useState<Appointment | null>(null);
   const [loadError, setLoadError] = useState('');
@@ -39,7 +41,7 @@ export default function AppointmentDetails() {
       const a = await appointmentService.getById(apptId);
       setAppt(a);
       const [n, t, cat, invs] = await Promise.allSettled([
-        appointmentService.getNotes(apptId),
+        canViewNotes ? appointmentService.getNotes(apptId) : Promise.resolve([]),
         appointmentService.getTreatments(apptId),
         treatmentService.getAll(),
         isDoctor ? Promise.resolve([]) : invoiceService.getAll({ appointment_id: apptId }),
@@ -284,7 +286,7 @@ export default function AppointmentDetails() {
           </div>
 
           {/* Consultation Notes */}
-          <div className="card">
+          {canViewNotes && <div className="card">
             <div className="card-header">
               <h3 className="card-title">Consultation Notes</h3>
               <span className="badge badge-gray">{notes.length}</span>
@@ -311,7 +313,7 @@ export default function AppointmentDetails() {
                 </div>
               )}
             </div>
-          </div>
+          </div>}
         </div>
 
         {/* Billing sidebar (hidden from doctors) */}

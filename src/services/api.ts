@@ -543,29 +543,41 @@ export const patientService = {
   addEmergencyContact: (id: number, data: Partial<EmergencyContact>) =>
     post<EmergencyContact>(`/patients/${id}/emergency-contacts`, data),
   deleteEmergencyContact: (contactId: number) => del(`/emergency-contacts/${contactId}`),
-  getInsurancePolicies: (id: number) => get<InsurancePolicy[]>(`/patients/${id}/insurance-policies`),
+  getInsurancePolicies: (id: number) => get<InsurancePolicy[]>(`/patients/${id}/insurance`),
 };
 
 // ── Insurance Service ─────────────────────────────────────────────────────────
 export const insuranceService = {
-  getProviders: () => get<InsuranceProvider[]>('/insurance-providers'),
-  createProvider: (data: Partial<InsuranceProvider>) => post<InsuranceProvider>('/insurance-providers', data),
-  getPolicies: (params?: { patient_id?: number; status?: string }) =>
-    get<InsurancePolicy[]>('/insurance-policies', params as Record<string, unknown>),
-  getPolicyById: (id: number) => get<InsurancePolicy>(`/insurance-policies/${id}`),
-  createPolicy: (data: Partial<InsurancePolicy>) => post<InsurancePolicy>('/insurance-policies', data),
+  getProviders: () => get<InsuranceProvider[]>('/insurance/providers'),
+  createProvider: (data: Partial<InsuranceProvider>) => post<InsuranceProvider>('/insurance/providers', data),
+  // The backend list endpoints take no filters (they are already scoped to the
+  // user's branch/patient), so optional filters are applied here.
+  getPolicies: async (params?: { patient_id?: number; status?: string }) => {
+    const policies = await get<InsurancePolicy[]>('/insurance/policies');
+    return policies.filter(p =>
+      (params?.patient_id === undefined || p.patient_id === params.patient_id) &&
+      (params?.status === undefined || p.status === params.status));
+  },
+  getPolicyById: (id: number) => get<InsurancePolicy>(`/insurance/policies/${id}`),
+  createPolicy: (data: Partial<InsurancePolicy>) => post<InsurancePolicy>('/insurance/policies', data),
   updatePolicy: (id: number, data: Partial<InsurancePolicy>) =>
-    put<InsurancePolicy>(`/insurance-policies/${id}`, data),
-  getCoverageByPolicy: (policyId: number) =>
-    get<InsuranceCoverage[]>(`/insurance-policies/${policyId}/coverages`),
+    put<InsurancePolicy>(`/insurance/policies/${id}`, data),
+  getCoverageByPolicy: async (policyId: number) => {
+    const coverages = await get<InsuranceCoverage[]>('/insurance/coverage');
+    return coverages.filter(c => c.policy_id === policyId);
+  },
   addCoverage: (policyId: number, data: Partial<InsuranceCoverage>) =>
-    post<InsuranceCoverage>(`/insurance-policies/${policyId}/coverages`, data),
-  getClaims: (params?: { status?: string; invoice_id?: number }) =>
-    get<InsuranceClaim[]>('/insurance-claims', params as Record<string, unknown>),
-  getClaimById: (id: number) => get<InsuranceClaim>(`/insurance-claims/${id}`),
-  createClaim: (data: Partial<InsuranceClaim>) => post<InsuranceClaim>('/insurance-claims', data),
+    post<InsuranceCoverage>('/insurance/coverage', { ...data, policy_id: policyId }),
+  getClaims: async (params?: { status?: string; invoice_id?: number }) => {
+    const claims = await get<InsuranceClaim[]>('/insurance/claims');
+    return claims.filter(c =>
+      (params?.invoice_id === undefined || c.invoice_id === params.invoice_id) &&
+      (params?.status === undefined || c.status === params.status));
+  },
+  getClaimById: (id: number) => get<InsuranceClaim>(`/insurance/claims/${id}`),
+  createClaim: (data: Partial<InsuranceClaim>) => post<InsuranceClaim>('/insurance/claims', data),
   updateClaim: (id: number, data: Partial<InsuranceClaim>) =>
-    put<InsuranceClaim>(`/insurance-claims/${id}`, data),
+    put<InsuranceClaim>(`/insurance/claims/${id}`, data),
 };
 
 // ── Appointment Service ───────────────────────────────────────────────────────

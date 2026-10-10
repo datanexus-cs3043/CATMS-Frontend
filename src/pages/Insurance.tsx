@@ -288,7 +288,8 @@ export default function Insurance() {
       )}
 
       {/* Providers Tab */}
-      {activeTab === 'providers' && canEdit && (
+      {/* The backend allows only admins to create providers. */}
+      {activeTab === 'providers' && isAdmin && (
         <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 16 }}>
           <button className="btn btn-primary" onClick={() => { setError(''); setShowProviderModal(true); }}>+ Add Provider</button>
         </div>
