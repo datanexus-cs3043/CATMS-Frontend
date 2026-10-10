@@ -64,6 +64,23 @@ export default function Branches() {
   }, [staffList]);
 
   
+  if (isLoading) {
+    return (
+      <div className="animate-[fade-in_0.3s_ease]">
+        <div className="section-header mb-6">
+          <div>
+            <div className="skeleton h-7 w-64 mb-2" />
+            <div className="skeleton h-4 w-48" />
+          </div>
+        </div>
+        <div className="branches-grid">
+          {[1, 2, 3, 4, 5, 6].map((i) => (
+            <div key={i} className="skeleton h-72 rounded-xl" />
+          ))}
+        </div>
+      </div>
+    );
+  }
 
 
 }  
