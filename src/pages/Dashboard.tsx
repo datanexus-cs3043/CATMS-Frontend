@@ -136,7 +136,8 @@ export default function Dashboard() {
           isDoctor ? Promise.resolve([]) : doctorService.getAll(),
           appointmentService.getAll(),
           isDoctor ? Promise.resolve([]) : invoiceService.getAll({ status: 'Unpaid,Partially Paid' }),
-          branchService.getAll(),
+          // Branch lists are staff-only on the backend; doctors and patients do not need them here.
+          personalView ? Promise.resolve([]) : branchService.getAll(),
         ]);
         const list = appts.status === 'fulfilled' ? appts.value : [];
         const invs = invoices.status === 'fulfilled' ? invoices.value : [];
