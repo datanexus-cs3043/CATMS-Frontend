@@ -1,18 +1,14 @@
 import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
 import { AuthUser, authService, UserRole } from '../services/api';
-import { localDemoUser, localLogin, resetLocalDb, setSessionUser } from '../services/localDb';
 
 interface AuthContextType {
   user: AuthUser | null;
   isAuthenticated: boolean;
   isLoading: boolean;
-  isDemoMode: boolean;
   login: (username: string, password: string) => Promise<void>;
-  loginAsDemo: (role: string) => void;
   logout: () => void;
   /** Merge profile changes into the signed-in user (e.g. after editing My Profile). */
   updateUser: (changes: Partial<AuthUser>) => void;
-  resetDemoData: () => void;
   hasRole: (roles: UserRole | UserRole[]) => boolean;
   hasAnyRole: (roles: UserRole[]) => boolean;
   isAdmin: boolean;
@@ -24,117 +20,62 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-const DEMO_KEY = 'demo_user';
-
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [user, setUserState] = useState<AuthUser | null>(null);
+  const [user, setUser] = useState<AuthUser | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [isDemoMode, setIsDemoMode] = useState(false);
-
-  const demoActiveRef = useRef(false);
-
-  const setUser = (u: AuthUser | null) => {
-    setSessionUser(u);
-    setUserState(u);
-  };
-
-  const startDemoSession = (demoUser: AuthUser) => {
-    demoActiveRef.current = true;
-    localStorage.setItem(DEMO_KEY, JSON.stringify(demoUser));
-    setUser(demoUser);
-    setIsDemoMode(true);
-    setIsLoading(false);
-  };
+  // A late session lookup must not overwrite a newer login or logout.
+  const sessionVersion = useRef(0);
 
   useEffect(() => {
-   
-    const stored = localStorage.getItem(DEMO_KEY);
-    if (stored) {
-      try {
-        const demoUser = JSON.parse(stored) as AuthUser;
-        demoActiveRef.current = true;
-        setUser(demoUser);
-        setIsDemoMode(true);
-        setIsLoading(false);
-        return; // Skip backend call entirely
-      } catch {
-        localStorage.removeItem(DEMO_KEY);
-      }
-    }
-
     let cancelled = false;
+    const version = sessionVersion.current;
 
     authService.getMe()
       .then((userData) => {
-        if (!cancelled && !demoActiveRef.current) {
+        if (!cancelled && sessionVersion.current === version) {
           setUser(userData);
-          setIsDemoMode(false);
         }
       })
       .catch(() => {
-        if (!cancelled && !demoActiveRef.current) setUser(null);
+        if (!cancelled && sessionVersion.current === version) setUser(null);
       })
       .finally(() => {
-        if (!cancelled && !demoActiveRef.current) setIsLoading(false);
+        if (!cancelled) setIsLoading(false);
       });
 
     return () => { cancelled = true; };
   }, []);
 
-  
-  const loginAsDemo = (role: string) => {
-    startDemoSession(localDemoUser(role));
-  };
-
- 
   const login = async (username: string, password: string) => {
+    const version = ++sessionVersion.current;
+    setUser(null);
     try {
       const response = await authService.login({ username, password });
-      if (response.access_token?.startsWith('local_token_')) {
-       
-        startDemoSession(response.user);
-        return;
+      // Confirm the browser's cookie session; never retain the returned JWT.
+      const session = await authService.getMe().catch(() => {
+        throw new Error('Unable to confirm the sign-in session');
+      });
+      if (session.user_id !== response.user.user_id || sessionVersion.current !== version) {
+        throw new Error('The sign-in session changed before it could be confirmed');
       }
-      demoActiveRef.current = false;
-      localStorage.removeItem(DEMO_KEY);
-      setUser(response.user);
-      setIsDemoMode(false);
-    } catch (err: any) {
-     
-      if (err?.response?.status === 401 || err?.response?.status === 403) {
-        try {
-          startDemoSession(localLogin(username, password));
-          return;
-        } catch { /* fall through to the original error */ }
-      }
-      throw err;
+      setUser(session);
+    } finally {
+      if (sessionVersion.current === version) setIsLoading(false);
     }
   };
 
   // ── Logout ──
   const logout = () => {
-    demoActiveRef.current = false;
-    localStorage.removeItem(DEMO_KEY);
+    sessionVersion.current += 1;
     setUser(null);
-    setIsDemoMode(false);
     authService.logout().catch(() => {});
   };
 
   const updateUser = (changes: Partial<AuthUser>) => {
     if (!user) return;
     const next = { ...user, ...changes };
+    sessionVersion.current += 1;
     setUser(next);
-    if (demoActiveRef.current) localStorage.setItem(DEMO_KEY, JSON.stringify(next));
-  };
-
-  const resetDemoData = () => {
-    resetLocalDb();
-    if (user?.username) {
-      // Reload the account from the fresh data so edited names are reverted too
-      const role = user.role;
-      logout();
-      loginAsDemo(role);
-    }
   };
 
   const hasRole = (roles: UserRole | UserRole[]): boolean => {
@@ -159,12 +100,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       user,
       isAuthenticated: !!user,
       isLoading,
-      isDemoMode,
       login,
-      loginAsDemo,
       logout,
       updateUser,
-      resetDemoData,
       hasRole,
       hasAnyRole,
       isAdmin,

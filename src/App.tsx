@@ -1,11 +1,10 @@
 import React, { useEffect, useState } from 'react';
-import { BrowserRouter, Routes, Route, Navigate, Outlet, useLocation, useNavigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, Outlet, useLocation } from 'react-router-dom';
 import { AuthProvider } from './auth/AuthContext';
 import { ProtectedRoute } from './auth/ProtectedRoute';
 import { Login } from './auth/Login';
-import { Sidebar, ROLE_LABEL } from './components/Sidebar';
+import { Sidebar } from './components/Sidebar';
 import { Navbar } from './components/Navbar';
-import { useAuth } from './auth/AuthContext';
 
 // Page Imports
 import Dashboard from './pages/Dashboard';
@@ -23,60 +22,11 @@ import Insurance from './pages/Insurance';
 import Staff from './pages/Staff';
 import Branches from './pages/Branches';
 import Reports from './pages/Reports';
-import MyAppointments from './pages/MyAppointments';
+import MyAppointments from './pages/Myappointments';
 import MyBills from './pages/MyBills';
 import MyProfile from './pages/MyProfile';
 import MyPatients from './pages/MyPatients';
-
-// ── Demo bar: switch roles while testing without a backend ──────────────────
-const ROLES = [
-  { key: 'admin', label: 'Admin' },
-  { key: 'branch_manager', label: 'Manager' },
-  { key: 'receptionist_cashier', label: 'Cashier' },
-  { key: 'doctor', label: 'Doctor' },
-  { key: 'patient', label: 'Patient' },
-];
-
-const demoBtn = 'rounded-sm border border-white/20 bg-transparent px-[9px] py-[3px] text-2xs font-medium text-[#dbe9f6] transition-all hover:bg-white/10 hover:text-white';
-
-const DemoBanner: React.FC = () => {
-  const { isDemoMode, user, loginAsDemo, logout, resetDemoData } = useAuth();
-  const navigate = useNavigate();
-
-  if (!isDemoMode) return null;
-
-  return (
-    <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2.5 bg-primary-900 px-5 py-[7px] text-xs text-[#dbe9f6] max-sm:px-3">
-      <div>
-        Demo mode · signed in as <strong className="font-semibold text-white">{user?.first_name} {user?.last_name}</strong> ({ROLE_LABEL[user?.role || '']}) · changes are saved in this browser
-      </div>
-      <div className="flex flex-wrap items-center gap-1.5">
-        {ROLES.map(r => (
-          <button
-            key={r.key}
-            className={`${demoBtn} ${user?.role === r.key ? 'border-white bg-white font-semibold text-primary-900' : ''}`}
-            onClick={() => { loginAsDemo(r.key); navigate('/'); }}
-          >
-            {r.label}
-          </button>
-        ))}
-        <button
-          className={demoBtn}
-          title="Restore the original sample data"
-          onClick={() => {
-            if (confirm('Reset all demo data to the original sample records? Any bookings, payments and edits made in this browser will be lost.')) {
-              resetDemoData();
-              navigate('/');
-            }
-          }}
-        >
-          Reset data
-        </button>
-        <button className={demoBtn} onClick={() => { logout(); navigate('/login'); }}>Exit</button>
-      </div>
-    </div>
-  );
-};
+import LandingPage from './pages/LandingPage';
 
 // App layout: sidebar (drawer on small screens), top bar and page content
 const AppLayout: React.FC = () => {
@@ -89,12 +39,11 @@ const AppLayout: React.FC = () => {
   }, [location.pathname]);
 
   return (
-    <div className="flex min-h-screen bg-off-white">
+    <div className="app-shell">
       <Sidebar open={navOpen} onClose={() => setNavOpen(false)} />
-      <div className="flex min-w-0 flex-1 flex-col">
-        <DemoBanner />
+      <div className="app-main">
         <Navbar onMenu={() => setNavOpen(true)} />
-        <main className="mx-auto w-full max-w-[1440px] flex-1 animate-fade-in px-8 pt-7 pb-10 max-lg:px-5 max-lg:pt-6 max-lg:pb-9 max-sm:px-3.5 max-sm:pt-[18px] max-sm:pb-8" key={location.pathname}>
+        <main className="app-content" key={location.pathname}>
           <Outlet />
         </main>
       </div>
@@ -107,7 +56,8 @@ export default function App() {
     <AuthProvider>
       <BrowserRouter>
         <Routes>
-          {/* Public Login Route */}
+          {/* Public Landing & Login Routes */}
+          <Route path="/" element={<LandingPage />} />
           <Route path="/login" element={<Login />} />
 
           {/* Protected App Routes with Layout */}
@@ -119,7 +69,7 @@ export default function App() {
             }
           >
             {/* ── Dashboard (all roles) ─────────────────────────── */}
-            <Route path="/" element={<Dashboard />} />
+            <Route path="/dashboard" element={<Dashboard />} />
 
             {/* ── Role-specific personal pages ─────────────────── */}
             <Route

@@ -5,7 +5,7 @@ import {
   Appointment, AppointmentTreatment, ConsultationNote, Invoice, Treatment,
 } from '../services/api';
 import { useAuth } from '../auth/AuthContext';
-import { localDate } from '../services/mockData';
+import { localDate } from '../utils/date';
 import { statusBadge } from './Appointments';
 
 export default function AppointmentDetails() {
