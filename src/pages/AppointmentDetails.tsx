@@ -128,7 +128,9 @@ export default function AppointmentDetails() {
   const isTreatingDoctor = isDoctor && appt.doctor_id === user?.doctor_id;
   const canManage = isStaff || (isPatient && appt.patient_id === user?.patient_id);
   const canComplete = isScheduled && appt.appointment_date <= today && (isStaff || isTreatingDoctor);
-  const canRecordTreatments = isCompleted && !invoice && (isStaff || isTreatingDoctor);
+  // Treatments are recorded during the visit (before or after completion) until it is billed;
+  // the database only lets a visit be completed once a treatment or note exists.
+  const canRecordTreatments = appt.status !== 'Cancelled' && !invoice && (isStaff || isTreatingDoctor);
   const canAddNotes = appt.status !== 'Cancelled' && (isTreatingDoctor || isAdmin);
   const treatmentsTotal = recorded.reduce((s, t) => s + Number(t.unit_price || 0) * t.quantity, 0);
 
@@ -153,7 +155,7 @@ export default function AppointmentDetails() {
                 <span className="badge badge-info">{appt.appointment_type}</span>
                 {canComplete && (
                   <button className="btn btn-primary btn-sm" disabled={busy}
-                    onClick={() => confirm('Mark this appointment as completed?') && run(() => appointmentService.complete(apptId), 'Appointment marked as completed. Record the treatments given below.')}>
+                    onClick={() => confirm('Mark this appointment as completed?') && run(() => appointmentService.complete(apptId), 'Appointment marked as completed.')}>
                     Mark Completed
                   </button>
                 )}
@@ -226,7 +228,7 @@ export default function AppointmentDetails() {
             <div className="card-body">
               {!isCompleted && (
                 <p className="text-gray-400 text-sm mb-3">
-                  {appt.status === 'Cancelled' ? 'This appointment was cancelled.' : 'Treatments are recorded once the appointment is marked as completed.'}
+                  {appt.status === 'Cancelled' ? 'This appointment was cancelled.' : 'Record the treatments given (or add a consultation note), then mark the appointment as completed.'}
                 </p>
               )}
               {recorded.length > 0 && (
@@ -279,7 +281,7 @@ export default function AppointmentDetails() {
                   <button type="submit" className="btn btn-primary" disabled={busy || !txForm.treatment_id}>Add</button>
                 </form>
               )}
-              {isCompleted && invoice && (
+              {invoice && (
                 <p className="text-xs text-gray-400">Treatments are locked because the invoice has been generated.</p>
               )}
             </div>
