@@ -1,4 +1,4 @@
-import axios from 'axios';
+import axios, { type AxiosResponse, type InternalAxiosRequestConfig } from 'axios';
 import { handleLocalRequest, LocalHttpError } from './localDb';
 
 // ── Role & Type definitions ──────────────────────────────────────────────────
@@ -302,6 +302,53 @@ const api = axios.create({
   headers: { 'Content-Type': 'application/json' },
 });
 
+// ── CSRF protection ───────────────────────────────────────────────────────────
+// The backend requires an X-CSRF-Token header on every POST/PUT/PATCH/DELETE.
+// The token is tied to the logged-in user and expires after 2 hours, so it is
+// cached here, cleared on login/logout, and refetched once if it is rejected.
+const CSRF_METHODS = ['post', 'put', 'patch', 'delete'];
+let csrfToken: string | null = null;
+let csrfRequest: Promise<string> | null = null;
+
+const clearCsrfToken = () => {
+  csrfToken = null;
+  csrfRequest = null;
+};
+
+const fetchCsrfToken = (): Promise<string> => {
+  if (csrfToken) return Promise.resolve(csrfToken);
+  if (!csrfRequest) {
+    const request: Promise<string> = api
+      .get<{ csrf_token: string }>('/auth/csrf')
+      .then((res: AxiosResponse<{ csrf_token: string }>) => {
+        csrfToken = res.data.csrf_token;
+        return res.data.csrf_token;
+      })
+      .finally(() => { csrfRequest = null; });
+    csrfRequest = request;
+    return request;
+  }
+  return csrfRequest;
+};
+
+const needsCsrf = (cfg: { method?: string; url?: string }): boolean =>
+  CSRF_METHODS.includes((cfg.method || 'get').toLowerCase()) && !(cfg.url || '').startsWith('/auth/');
+
+const isCsrfRejection = (error: any): boolean =>
+  error?.response?.status === 403 &&
+  String(error.response.data?.detail || '').toLowerCase().includes('csrf');
+
+api.interceptors.request.use(async (cfg: InternalAxiosRequestConfig) => {
+  if (needsCsrf(cfg)) {
+    try {
+      cfg.headers.set('X-CSRF-Token', await fetchCsrfToken());
+    } catch {
+      // Backend unreachable: let the request go ahead and fail normally.
+    }
+  }
+  return cfg;
+});
+
 // ── Offline / not-yet-implemented endpoints → local data store ────────────────
 // The backend currently implements only auth. Any request that fails because
 // the server is unreachable, or because the endpoint does not exist yet
@@ -318,6 +365,12 @@ const shouldUseLocalStore = (error: any): boolean => {
 api.interceptors.response.use(
   res => res,
   async (error) => {
+    // Expired or stale CSRF token: get a fresh one and retry the request once.
+    if (isCsrfRejection(error) && error.config && !error.config._csrfRetried) {
+      clearCsrfToken();
+      error.config._csrfRetried = true;
+      return api.request(error.config);
+    }
     if (!shouldUseLocalStore(error)) throw error;
     const cfg = error.config;
     let body: any = cfg.data;
@@ -350,6 +403,7 @@ export const apiErrorMessage = (err: any, fallback = 'Something went wrong. Plea
 // ── Auth Service ──────────────────────────────────────────────────────────────
 export const authService = {
   login: async (credentials: { username: string; password: string }): Promise<LoginResponse> => {
+    clearCsrfToken();
     const res = await api.post<LoginResponse>('/auth/login', credentials);
     return res.data;
   },
@@ -362,6 +416,7 @@ export const authService = {
     return res.data;
   },
   logout: async (): Promise<{ message: string }> => {
+    clearCsrfToken();
     const res = await api.post<{ message: string }>('/auth/logout');
     return res.data;
   },
