@@ -13,9 +13,9 @@ const SLIDES = [
   },
   {
     tag: 'Fast & Reliable Channeling',
-    title: 'Find Your Specialist & Book with Zero Waiting',
-    desc: 'Search certified medical consultants by specialty or location, reserve your consultation window in seconds, or register for same-day walk-in care with instant front-desk check-in.',
-    badge: 'No Long Queues',
+    title: 'Find Your Specialist & Arrange Your Visit',
+    desc: 'Explore medical specialties and contact clinic reception to arrange a consultation or ask about same-day walk-in care.',
+    badge: 'Reception-Assisted Booking',
   },
   {
     tag: 'Unified Health Records',
@@ -25,9 +25,9 @@ const SLIDES = [
   },
   {
     tag: 'Transparent Billing & Claims',
-    title: 'Clear, Itemized Invoices & Instant Insurance Support',
-    desc: 'No hidden medical charges. Every consultation and procedure is itemized from a standardized service catalog, with direct health insurance policy coverage applied automatically.',
-    badge: 'Cashless Claims',
+    title: 'Clear, Itemized Invoices & Insurance Claim Tracking',
+    desc: 'Consultations and procedures are itemized from a standardized service catalog. View your bills and ask reception about insurance policies and claim status.',
+    badge: 'Transparent Claims',
   },
 ];
 
@@ -35,7 +35,7 @@ const FEATURES = [
   {
     icon: '🩺',
     title: 'Specialist Channeling',
-    desc: 'Search certified medical practitioners across multiple disciplines. View verified consultation hours and reserve your appointment slot without double-booking conflicts.',
+    desc: 'Find medical practitioners across multiple disciplines. Clinic reception helps arrange appointments with the appropriate doctor and branch.',
   },
   {
     icon: '🏥',
@@ -55,12 +55,12 @@ const FEATURES = [
   {
     icon: '🧾',
     title: 'Itemized, Fair Invoicing',
-    desc: 'Invoices are computed automatically from the treatments rendered during your visit, guaranteeing clear line-item prices with zero manual errors.',
+    desc: 'Invoices are generated from the recorded treatments rendered during your visit, showing itemized quantities and prices.',
   },
   {
     icon: '🛡️',
     title: 'Integrated Health Insurance',
-    desc: 'Store insurance policy numbers and terms. Claims are filed and settled against invoices with coverage percentages and maximum caps applied automatically.',
+    desc: 'Keep insurance policy numbers and terms on file. Clinic staff manage claims against invoices and track pending, approved and rejected outcomes.',
   },
 ];
 
@@ -110,13 +110,13 @@ const STEPS = [
   },
   {
     num: '02',
-    title: 'Book a Slot or Visit Walk-In',
-    desc: 'Pick a convenient time slot that fits your schedule, or walk straight into any of our clinic front desks for immediate registration.',
+    title: 'Contact Reception or Visit Walk-In',
+    desc: 'Ask clinic reception to book, cancel or reschedule your appointment. Visit a clinic front desk for patient registration and walk-in assistance.',
   },
   {
     num: '03',
     title: 'Consult & Settle Transparently',
-    desc: 'Meet your doctor, receive expert medical care, review consultation notes, and settle an itemized bill with insurance applied.',
+    desc: 'Meet your doctor, receive medical care, review your appointment history, and settle an itemized bill with clinic reception.',
   },
 ];
 
@@ -214,7 +214,7 @@ export default function LandingPage() {
                   className="landing-btn landing-btn-primary"
                   onClick={() => navigate('/login?tab=register')}
                 >
-                  Sign up
+                  Patient Account Help
                 </button>
               </div>
             )}
@@ -292,7 +292,7 @@ export default function LandingPage() {
                     className="landing-btn landing-btn-lg landing-btn-outline-white"
                     onClick={() => navigate('/login?tab=register')}
                   >
-                    Sign up as Patient
+                    Get Patient Account Help
                   </button>
                 </>
               )}
@@ -373,12 +373,11 @@ export default function LandingPage() {
               <div className="landing-card-icon">🏥</div>
               <h3>For Patients</h3>
               <p>
-                Experience convenient, stress-free healthcare. Search for specialist doctors, reserve appointments
-                online, check in easily for emergency walk-ins, and view all your past consultations and billing
-                receipts in one place.
+                View your appointment and billing history through your patient portal. Clinic reception
+                handles registration, appointment bookings, cancellations, rescheduling and walk-in check-in.
               </p>
               <ul className="landing-check-list">
-                <li>Simple online appointment booking & cancellations</li>
+                <li>Reception-assisted appointment bookings & cancellations</li>
                 <li>One patient account valid in Colombo, Kandy, and Galle</li>
                 <li>Clear itemized bills and transparent insurance claim tracking</li>
               </ul>
@@ -551,7 +550,7 @@ export default function LandingPage() {
                       className="landing-btn landing-btn-lg landing-btn-outline-light"
                       onClick={() => navigate('/login?tab=register')}
                     >
-                      Register as New Patient
+                      Patient Registration Help
                     </button>
                   </>
                 )}
@@ -594,7 +593,7 @@ export default function LandingPage() {
               <h4>Access Portal</h4>
               <ul>
                 <li><span className="cursor-pointer text-primary" onClick={() => navigate('/login')}>Patient & Staff Sign In</span></li>
-                <li><span className="cursor-pointer text-primary" onClick={() => navigate('/login?tab=register')}>Patient Registration</span></li>
+                <li><span className="cursor-pointer text-primary" onClick={() => navigate('/login?tab=register')}>Patient Account Help</span></li>
                 {isAuthenticated && <li><span className="cursor-pointer text-primary" onClick={() => navigate('/dashboard')}>Clinical Dashboard</span></li>}
               </ul>
             </div>
