@@ -1,9 +1,9 @@
-import React, { useState, useEffect, useMemo } from 'react';
-import { branchService, Branch, staffService, Staff } from '../services/api';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { branchService, Branch, staffService, Staff, apiErrorMessage } from '../services/api';
 import { useAuth } from '../auth/AuthContext';
 
 export default function Branches() {
-  const { isAdmin } = useAuth();
+  const { isAdmin, user } = useAuth();
   const [branches, setBranches] = useState<Branch[]>([]);
   const [staffList, setStaffList] = useState<Staff[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -16,40 +16,91 @@ export default function Branches() {
   });
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
+  const [loadError, setLoadError] = useState('');
+  const [staffError, setStaffError] = useState('');
+  const [successMsg, setSuccessMsg] = useState('');
+  const loadVersion = useRef(0);
+  const scopeVersion = useRef(0);
+  const mounted = useRef(false);
+  const submittingRef = useRef(false);
 
   useEffect(() => {
-    loadData();
-  }, []);
+    mounted.current = true;
+    scopeVersion.current += 1;
+    setBranches([]);
+    setStaffList([]);
+    setShowModal(false);
+    setSuccessMsg('');
+    void loadData();
+    return () => {
+      mounted.current = false;
+      loadVersion.current += 1;
+      scopeVersion.current += 1;
+    };
+  }, [user?.user_id, user?.branch_id, user?.role, isAdmin]);
 
   const loadData = async () => {
+    const version = ++loadVersion.current;
     setIsLoading(true);
-    try {
-      const [b, s] = await Promise.all([
-        branchService.getAll(),
-        staffService.getAll(),
-      ]);
-      setBranches(b);
-      setStaffList(s);
-    } catch {
-      /* noop */
-    } finally {
-      setIsLoading(false);
-    }
+    setLoadError('');
+    setStaffError('');
+    const [branchResult, staffResult] = await Promise.allSettled([
+      branchService.getAll(), staffService.getAll(),
+    ]);
+    if (!mounted.current || version !== loadVersion.current) return;
+    if (branchResult.status === 'fulfilled') setBranches(branchResult.value);
+    else setLoadError(apiErrorMessage(branchResult.reason, 'Could not load branches. Please retry.'));
+    if (staffResult.status === 'fulfilled') setStaffList(staffResult.value);
+    else setStaffError(apiErrorMessage(staffResult.reason, 'Could not load branch staff. Staff counts and manager details are unavailable. Please retry.'));
+    setIsLoading(false);
+  };
+
+  const closeModal = () => {
+    if (!submittingRef.current) setShowModal(false);
+  };
+
+  const openModal = () => {
+    if (submittingRef.current) return;
+    setForm({ branch_name: '', location: '', contact_details: '' });
+    setError('');
+    setShowModal(true);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (submittingRef.current) return;
+    if (!isAdmin) {
+      setError('Only administrators can create branches.');
+      return;
+    }
+    const payload = {
+      branch_name: form.branch_name?.trim() || '',
+      location: form.location?.trim() || '',
+      contact_details: form.contact_details?.trim() || '',
+    };
+    if (!payload.branch_name || !payload.location) {
+      setError('Enter a branch name and location.');
+      return;
+    }
+    const scope = scopeVersion.current;
+    submittingRef.current = true;
     setSubmitting(true);
     setError('');
     try {
-      await branchService.create(form);
+      const created = await branchService.create(payload);
+      if (!mounted.current || scope !== scopeVersion.current) return;
+      loadVersion.current += 1;
+      setIsLoading(false);
+      setBranches(current => [...current.filter(branch => branch.branch_id !== created.branch_id), created]
+        .sort((a, b) => a.branch_name.localeCompare(b.branch_name)));
+      setSuccessMsg(`${created.branch_name} created successfully.`);
       setShowModal(false);
       setForm({ branch_name: '', location: '', contact_details: '' });
-      loadData();
-    } catch (err: any) {
-      setError(err?.response?.data?.detail || 'Failed to create branch');
+    } catch (err) {
+      if (mounted.current && scope === scopeVersion.current) setError(apiErrorMessage(err, 'Could not confirm branch creation. Check the branch list before trying again.'));
     } finally {
-      setSubmitting(false);
+      submittingRef.current = false;
+      if (mounted.current) setSubmitting(false);
     }
   };
 
@@ -63,7 +114,7 @@ export default function Branches() {
     return map;
   }, [staffList]);
 
-    const getStaffForBranch = (branchId: number) =>
+  const getStaffForBranch = (branchId: number) =>
     staffByBranch.get(branchId) ?? [];
 
   const getManager = (managerId?: number | null) => {
@@ -106,15 +157,17 @@ export default function Branches() {
 
   return (
     <div className="animate-[fade-in_0.3s_ease]">
+      {successMsg && <div className="alert alert-success" role="status">{successMsg}</div>}
       {/* ── Header ─────────────────────────────────────────────── */}
       <div className="section-header mb-6">
         <div>
           <h2 className="text-gray-900 m-0">MedSync Branches</h2>
           <p className="text-sm text-gray-500 mt-0.5">
-            {branches.length} branch{branches.length === 1 ? '' : 'es'} across Sri Lanka
+            {loadError ? 'Branch count unavailable' : `${branches.length} branch${branches.length === 1 ? '' : 'es'} available to you`}
           </p>
         </div>
         <div className="page-actions">
+          <button className="btn btn-secondary" disabled={submitting} onClick={() => void loadData()}>Refresh</button>
           <div className="search-box">
             <input
               type="search"
@@ -126,10 +179,8 @@ export default function Branches() {
           {isAdmin && (
             <button
               className="btn btn-primary"
-              onClick={() => {
-                setShowModal(true);
-                setError('');
-              }}
+              disabled={!!loadError || submitting}
+              onClick={openModal}
             >
               + Add Branch
             </button>
@@ -137,8 +188,12 @@ export default function Branches() {
         </div>
       </div>
 
+      {staffError && <div className="alert alert-error" role="alert">{staffError} <button className="btn btn-secondary btn-sm" disabled={submitting} onClick={() => void loadData()}>Retry</button></div>}
+
       {/* ── Empty state ────────────────────────────────────────── */}
-      {filteredBranches.length === 0 ? (
+      {loadError ? (
+        <div className="alert alert-error" role="alert">{loadError} <button className="btn btn-secondary btn-sm" disabled={submitting} onClick={() => void loadData()}>Retry</button></div>
+      ) : filteredBranches.length === 0 ? (
         <div className="card">
           <div className="empty-state">
             <div className="empty-state-title">
@@ -147,12 +202,13 @@ export default function Branches() {
             <div className="empty-state-desc">
               {search
                 ? 'Try a different keyword or clear the search.'
-                : 'Get started by adding your first MedSync branch.'}
+                : isAdmin ? 'Get started by adding your first MedSync branch.' : 'No branches are available to your account.'}
             </div>
             {isAdmin && !search && (
               <button
                 className="btn btn-primary"
-                onClick={() => setShowModal(true)}
+                disabled={submitting}
+                onClick={openModal}
               >
                 + Add Branch
               </button>
@@ -186,14 +242,14 @@ export default function Branches() {
                 {/* Stats row */}
                 <div className="branch-card-stats">
                   <div className="branch-stat">
-                    <span className="branch-stat-value">{branchStaff.length}</span>
+                    <span className="branch-stat-value">{staffError ? 'Unavailable' : branchStaff.length}</span>
                     <span className="branch-stat-label">Total Staff</span>
                   </div>
                   <div className="branch-stat">
                     <span className="branch-stat-value branch-stat-value--accent">
-                      {doctors.length}
+                      {staffError ? 'Unavailable' : doctors.length}
                     </span>
-                    <span className="branch-stat-label">Doctors</span>
+                    <span className="branch-stat-label">Doctor-role Staff</span>
                   </div>
                 </div>
 
@@ -210,7 +266,7 @@ export default function Branches() {
                   <div className="branch-detail-row">
                     <span className="branch-detail-label">Manager</span>
                     <span className="branch-detail-value">
-                      {manager ? (
+                      {staffError ? <span className="text-muted">Unavailable</span> : manager ? (
                         <span className="branch-manager">
                           <span className="avatar branch-manager-avatar">
                             {initials(manager.first_name, manager.last_name)}
@@ -218,7 +274,7 @@ export default function Branches() {
                           {manager.first_name} {manager.last_name}
                         </span>
                       ) : (
-                        <span className="badge badge-gray">Not assigned</span>
+                        <span className="badge badge-gray">{branch.manager_staff_id ? 'Details unavailable' : 'Not assigned'}</span>
                       )}
                     </span>
                   </div>
@@ -231,25 +287,28 @@ export default function Branches() {
 
       {/* ── Add Branch Modal ───────────────────────────────────── */}
       {showModal && (
-        <div className="modal-overlay" onClick={() => setShowModal(false)}>
+        <div className="modal-overlay" onClick={closeModal}>
           
           <div className="modal" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
               <h3 className="modal-title">Add New Branch</h3>
               <button
                 className="modal-close"
-                onClick={() => setShowModal(false)}
+                disabled={submitting}
+                onClick={closeModal}
                 aria-label="Close"
               />
             </div>
             <form onSubmit={handleSubmit}>
               <div className="modal-body">
                 {error && <div className="alert alert-error">{error}</div>}
+                <fieldset disabled={submitting} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
                 <div className="form-group">
                   <label className="form-label">Branch Name *</label>
                   <input
                     className="form-control"
                     required
+                    maxLength={150}
                     value={form.branch_name || ''}
                     onChange={(e) =>
                       setForm({ ...form, branch_name: e.target.value })
@@ -262,6 +321,7 @@ export default function Branches() {
                   <input
                     className="form-control"
                     required
+                    maxLength={255}
                     value={form.location || ''}
                     onChange={(e) =>
                       setForm({ ...form, location: e.target.value })
@@ -279,15 +339,18 @@ export default function Branches() {
                       setForm({ ...form, contact_details: e.target.value })
                     }
                     placeholder="Phone number"
+                    maxLength={255}
                   />
                 </div>
+                </fieldset>
               </div>
 
               <div className="modal-footer">
                 <button
                   type="button"
                   className="btn btn-ghost"
-                  onClick={() => setShowModal(false)}
+                  disabled={submitting}
+                  onClick={closeModal}
                 >
                   Cancel
                 </button>
@@ -315,4 +378,3 @@ export default function Branches() {
   );
 
 }
-  
