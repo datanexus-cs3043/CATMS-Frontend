@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { patientService, branchService, apiErrorMessage, Patient, Branch } from '../services/api';
 import { localDate } from '../utils/date';
@@ -25,16 +25,18 @@ export default function Patients() {
   const [filterBranch, setFilterBranch] = useState('');
   const [filterGender, setFilterGender] = useState('');
   const [showModal, setShowModal] = useState(false);
-  const defaultBranchId = (isManager && user?.branch_id) ? user.branch_id : 1;
+  const defaultBranchId = user?.branch_id || 1;
   const blankForm = {
     first_name: '', last_name: '', date_of_birth: '', gender: 'Male',
     patient_type: 'Regular', contact_details: '', email: '', address: '',
     branch_id: defaultBranchId, emergency_contact_name: '', emergency_contact_relationship: '', emergency_contact_phone: '',
   };
-  const [form, setForm] = useState<Record<string, any>>(blankForm);
+  const [form, setForm] = useState(blankForm);
   const [submitting, setSubmitting] = useState(false);
+  const submittingRef = useRef(false);
   const [error, setError] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
+  const [loadError, setLoadError] = useState('');
 
   useEffect(() => {
     loadData();
@@ -53,6 +55,7 @@ export default function Patients() {
 
   const loadData = async () => {
     setIsLoading(true);
+    setLoadError('');
     try {
       const [pts, brs] = await Promise.all([
         patientService.getAll(),
@@ -60,8 +63,8 @@ export default function Patients() {
       ]);
       setPatients(pts);
       setBranches(brs);
-    } catch {
-      // handle
+    } catch (err) {
+      setLoadError(apiErrorMessage(err, 'Could not load patients. Please retry.'));
     } finally {
       setIsLoading(false);
     }
@@ -77,14 +80,19 @@ export default function Patients() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (submittingRef.current) return;
+    const contact = { contact_name: form.emergency_contact_name.trim(), relationship: form.emergency_contact_relationship.trim(), phone: form.emergency_contact_phone.trim() };
+    if (Object.values(contact).some(Boolean) && !Object.values(contact).every(Boolean)) {
+      setError('Enter all three emergency-contact fields, or leave all of them blank.');
+      return;
+    }
+    submittingRef.current = true;
     setSubmitting(true);
     setError('');
     try {
-      const created: any = await patientService.create(form as Partial<Patient>);
-      setSuccessMsg(
-        `${created.first_name} ${created.last_name} registered (Patient #${created.patient_id}).` +
-        (created.username ? ` Patient portal login: ${created.username} / ${created.temporary_password}` : '')
-      );
+      const { emergency_contact_name, emergency_contact_relationship, emergency_contact_phone, ...patientFields } = form;
+      const created = await patientService.create({ ...patientFields, ...(contact.contact_name ? { emergency_contact: contact } : {}) });
+      setSuccessMsg(`${created.first_name} ${created.last_name} registered (Patient #${created.patient_id}). This creates a patient record, not a portal sign-in account.`);
       setShowModal(false);
       loadData();
       setTimeout(() => setSuccessMsg(''), 10000);
@@ -92,6 +100,7 @@ export default function Patients() {
       setError(apiErrorMessage(err, 'Failed to register patient'));
     } finally {
       setSubmitting(false);
+      submittingRef.current = false;
     }
   };
 
@@ -110,6 +119,7 @@ export default function Patients() {
 
   return (
     <div style={{ animation: 'fadeIn 0.3s ease' }}>
+      {loadError && <div className="alert alert-error" role="alert">{loadError}<button className="btn btn-ghost btn-sm" onClick={() => void loadData()}>Retry</button></div>}
       {successMsg && <div className="alert alert-success">{successMsg}</div>}
 
       <div className="section-header">
@@ -174,7 +184,7 @@ export default function Patients() {
               <div key={i} className="skeleton" style={{ height: 50, marginBottom: 8, borderRadius: 'var(--radius)' }} />
             ))}
           </div>
-        ) : filtered.length === 0 ? (
+        ) : loadError ? <div className="card-body">Patient data is unavailable. Use Retry above.</div> : filtered.length === 0 ? (
           <div className="empty-state">
             <div className="empty-state-icon">
             </div>
