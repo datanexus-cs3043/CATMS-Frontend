@@ -265,8 +265,8 @@ export default function InvoiceDetails() {
                       <tr key={p.payment_id}>
                         <td>{p.payment_date}</td>
                         <td style={{ fontWeight: 600, color: 'var(--success)' }}>{money(p.amount)}</td>
-                        <td>{p.method}</td>
-                        <td style={{ color: 'var(--gray-500)' }}>{p.received_by}</td>
+                        <td>{p.payment_method}</td>
+                        <td style={{ color: 'var(--gray-500)' }}>{p.received_by_name || '—'}</td>
                       </tr>
                     ))}
                   </tbody>

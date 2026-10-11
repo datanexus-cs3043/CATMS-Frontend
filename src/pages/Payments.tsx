@@ -82,8 +82,8 @@ export default function Payments() {
                       <td style={{ color: 'var(--gray-500)' }}>{p.payment_date}</td>
                       <td>INV-{p.invoice_id}</td>
                       <td>{p.patient_name}</td>
-                      <td>{p.method}</td>
-                      <td style={{ color: 'var(--gray-500)' }}>{p.received_by}</td>
+                      <td>{p.payment_method}</td>
+                      <td style={{ color: 'var(--gray-500)' }}>{p.received_by_name || '—'}</td>
                       <td style={{ fontWeight: 600, color: 'var(--success)' }}>Rs. {Number(p.amount).toLocaleString()}</td>
                     </tr>
                   ))}

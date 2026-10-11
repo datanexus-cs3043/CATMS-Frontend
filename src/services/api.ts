@@ -209,13 +209,17 @@ export interface Invoice {
   appointment_date?: string;
 }
 
+/** Money a patient paid towards an invoice (backend `patient_payment`). */
 export interface Payment {
   payment_id: number;
   invoice_id: number;
   amount: number;
-  method: string;
+  payment_method: string;
   payment_date: string;
-  received_by: string;
+  payment_type: string;
+  reference_number?: string | null;
+  received_by_name?: string | null;
+  patient_id?: number;
   patient_name?: string;
 }
 
@@ -612,15 +616,20 @@ export const invoiceService = {
     get<Invoice[]>('/invoices', params as Record<string, unknown>),
   getById: (id: number) => get<Invoice>(`/invoices/${id}`),
   /** Generate the invoice for a completed appointment from its recorded treatments. */
-  generate: (appointmentId: number) => post<Invoice>('/invoices', { appointment_id: appointmentId }),
+  generate: (appointmentId: number) => post<Invoice>('/invoices/generate', { appointment_id: appointmentId }),
   update: (id: number, data: Partial<Invoice>) => put<Invoice>(`/invoices/${id}`, data),
   getItems: (id: number) => get<InvoiceItem[]>(`/invoices/${id}/items`),
   addItem: (id: number, data: Partial<InvoiceItem>) =>
     post<InvoiceItem>(`/invoices/${id}/items`, data),
-  makePayment: (id: number, data: { amount: number; method?: string }) =>
-    post<Invoice>(`/invoices/${id}/payments`, data),
-  getPayments: (id: number) => get<Payment[]>(`/invoices/${id}/payments`),
-  getAllPayments: () => get<Payment[]>('/payments'),
+  /** Record a patient payment, then return the invoice with its new balance/status. */
+  makePayment: async (id: number, data: { amount: number; method?: string; reference?: string }) => {
+    await post<Payment>(`/invoices/${id}/patient-payments`, {
+      amount: data.amount, payment_method: data.method || 'Cash', reference_number: data.reference || null,
+    });
+    return get<Invoice>(`/invoices/${id}`);
+  },
+  getPayments: (id: number) => get<Payment[]>(`/invoices/${id}/patient-payments`),
+  getAllPayments: () => get<Payment[]>('/patient-payments'),
   getDoctorPayments: (params?: { doctor_id?: number }) =>
     get<DoctorPayment[]>('/doctor-payments', params as Record<string, unknown>),
 };
