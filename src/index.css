@@ -2303,3 +2303,12 @@ tbody td { padding: 12px 16px; color: var(--gray-700); vertical-align: middle; }
   .branch-card-details { padding: 12px 16px 16px; }
   .branch-detail-row { grid-template-columns: 74px 1fr; }
 }
+
+/* ── Management Reports & PDF Exports ───────────────────────────── */
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+.spin {
+  animation: spin 0.8s linear infinite;
+}
