@@ -71,6 +71,7 @@ export interface Staff {
   email: string;
   staff_type: string;
   role: string;
+  username?: string;
   branch_name?: string;
 }
 
