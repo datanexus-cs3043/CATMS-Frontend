@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
   appointmentService, invoiceService, treatmentService, apiErrorMessage,
@@ -22,6 +22,9 @@ export default function AppointmentDetails() {
 
   const [appt, setAppt] = useState<Appointment | null>(null);
   const [loadError, setLoadError] = useState('');
+  const [relatedError, setRelatedError] = useState('');
+  const loadVersion = useRef(0);
+  const actionPending = useRef(false);
   const [notes, setNotes] = useState<ConsultationNote[]>([]);
   const [recorded, setRecorded] = useState<AppointmentTreatment[]>([]);
   const [catalogue, setCatalogue] = useState<Treatment[]>([]);
@@ -39,30 +42,40 @@ export default function AppointmentDetails() {
   const apptId = Number(id);
 
   const load = async () => {
+    const version = ++loadVersion.current;
     setIsLoading(true);
     setLoadError('');
+    setRelatedError('');
     try {
       const a = await appointmentService.getById(apptId);
+      if (version !== loadVersion.current) return;
       setAppt(a);
       const [n, t, cat, invs] = await Promise.allSettled([
         canViewNotes ? appointmentService.getNotes(apptId) : Promise.resolve([]),
         appointmentService.getTreatments(apptId),
-        treatmentService.getAll(),
+        isAdmin || isDoctor ? treatmentService.getAll() : Promise.resolve([]),
         isDoctor ? Promise.resolve([]) : invoiceService.getAll({ appointment_id: apptId }),
       ]);
+      if (version !== loadVersion.current) return;
       if (n.status === 'fulfilled') setNotes(n.value);
       if (t.status === 'fulfilled') setRecorded(t.value);
       if (cat.status === 'fulfilled') setCatalogue(cat.value);
       setInvoice(invs.status === 'fulfilled' ? invs.value[0] ?? null : null);
+      const failed = [n, t, cat, invs].find(r => r.status === 'rejected');
+      setRelatedError(failed?.status === 'rejected' ? apiErrorMessage(failed.reason, 'Some visit details could not be loaded. Reload before making changes.') : '');
     } catch (err) {
+      if (version !== loadVersion.current) return;
       setAppt(null);
       setLoadError(apiErrorMessage(err, 'Appointment not found.'));
     } finally {
-      setIsLoading(false);
+      if (version === loadVersion.current) setIsLoading(false);
     }
   };
 
-  useEffect(() => { if (id) load(); }, [id]);
+  useEffect(() => {
+    if (id) void load();
+    return () => { loadVersion.current++; };
+  }, [id]);
 
   const flash = (type: 'success' | 'error', text: string) => {
     setMessage({ type, text });
@@ -70,6 +83,8 @@ export default function AppointmentDetails() {
   };
 
   const run = async (action: () => Promise<unknown>, success: string) => {
+    if (actionPending.current) return;
+    actionPending.current = true;
     setBusy(true);
     try {
       await action();
@@ -79,6 +94,7 @@ export default function AppointmentDetails() {
       flash('error', appointmentActionError(err));
     } finally {
       setBusy(false);
+      actionPending.current = false;
     }
   };
 
@@ -101,6 +117,13 @@ export default function AppointmentDetails() {
 
   const handleReschedule = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (actionPending.current) return;
+    if (!rescheduleForm.appointment_date || !rescheduleForm.start_time || rescheduleForm.end_time <= rescheduleForm.start_time) {
+      setRescheduleError('Choose a date and an end time after the start time.');
+      return;
+    }
+    actionPending.current = true;
+    setBusy(true);
     setRescheduleError('');
     try {
       const created = await appointmentService.reschedule(apptId, rescheduleForm);
@@ -108,7 +131,7 @@ export default function AppointmentDetails() {
       navigate(`/appointments/${created.appointment_id}`);
     } catch (err) {
       setRescheduleError(apiErrorMessage(err, 'Reschedule failed.'));
-    }
+    } finally { actionPending.current = false; setBusy(false); }
   };
 
   if (isLoading) return (
@@ -130,12 +153,13 @@ export default function AppointmentDetails() {
   const isScheduled = appt.status === 'Scheduled';
   const isCompleted = appt.status === 'Completed';
   const isTreatingDoctor = isDoctor && appt.doctor_id === user?.doctor_id;
-  const canManage = isStaff || (isPatient && appt.patient_id === user?.patient_id);
-  const canComplete = isScheduled && appt.appointment_date <= today && (isStaff || isTreatingDoctor);
+  const unbilled = !appt.invoice_id && !invoice;
+  const canManage = isStaff && unbilled && !relatedError;
+  const canComplete = isScheduled && unbilled && !relatedError && appt.appointment_date <= today && (isStaff || isTreatingDoctor);
   // Treatments are recorded during the visit (before or after completion) until it is billed;
   // the database only lets a visit be completed once a treatment or note exists.
-  const canRecordTreatments = appt.status !== 'Cancelled' && !invoice && (isAdmin || isTreatingDoctor);
-  const canAddNotes = appt.status !== 'Cancelled' && (isTreatingDoctor || isAdmin);
+  const canRecordTreatments = appt.status !== 'Cancelled' && unbilled && !relatedError && (isAdmin || isTreatingDoctor);
+  const canAddNotes = appt.status !== 'Cancelled' && unbilled && !relatedError && (isTreatingDoctor || isAdmin);
   const treatmentsTotal = recorded.reduce((s, t) => s + Number(t.unit_price || 0) * t.quantity, 0);
 
   return (
@@ -148,6 +172,8 @@ export default function AppointmentDetails() {
       </div>
 
       {message && <div className={`alert ${message.type === 'success' ? 'alert-success' : 'alert-error'}`}>{message.text}</div>}
+      {relatedError && <div className="alert alert-error" role="alert">{relatedError}<button className="btn btn-ghost btn-sm" onClick={() => void load()}>Reload visit</button></div>}
+      {isPatient && <div className="alert alert-info">Please contact clinic staff to book, cancel or reschedule a visit.</div>}
 
       <div className="flex flex-wrap gap-5 items-start">
         <div className="flex flex-col gap-5 flex-[2_1_520px] min-w-0">
@@ -169,7 +195,7 @@ export default function AppointmentDetails() {
                 )}
                 {isScheduled && canManage && (
                   <>
-                    <button className="btn btn-secondary btn-sm" onClick={() => { setRescheduleForm({ appointment_date: appt.appointment_date, start_time: appt.start_time.slice(0, 5), end_time: appt.end_time.slice(0, 5) }); setRescheduleError(''); setShowReschedule(true); }}>Reschedule</button>
+                    <button className="btn btn-secondary btn-sm" disabled={busy} onClick={() => { setRescheduleForm({ appointment_date: appt.appointment_date, start_time: appt.start_time.slice(0, 5), end_time: appt.end_time.slice(0, 5) }); setRescheduleError(''); setShowReschedule(true); }}>Reschedule</button>
                     <button className="btn btn-danger btn-sm" disabled={busy}
                       onClick={async () => {
                         if (await confirmAction('Are you sure you want to cancel this appointment?', { title: 'Cancel appointment', confirmLabel: 'Cancel appointment', danger: true })) {
@@ -365,7 +391,7 @@ export default function AppointmentDetails() {
                   <p className="text-gray-400 text-sm mb-3">
                     {isCompleted ? 'No invoice generated yet.' : 'An invoice is generated after the appointment is completed.'}
                   </p>
-                  {canBill && isCompleted && (
+                  {canBill && isCompleted && unbilled && !relatedError && (
                     <button className="btn btn-primary" disabled={busy}
                       onClick={() => run(() => invoiceService.generate(apptId), 'Invoice generated from the recorded treatments.')}>
                       Generate Invoice
@@ -406,7 +432,7 @@ export default function AppointmentDetails() {
               </div>
               <div className="modal-footer">
                 <button type="button" className="btn btn-ghost" onClick={() => setShowReschedule(false)}>Cancel</button>
-                <button type="submit" className="btn btn-primary">Reschedule</button>
+                <button type="submit" className="btn btn-primary" disabled={busy}>{busy ? 'Rescheduling…' : 'Reschedule'}</button>
               </div>
             </form>
           </div>
