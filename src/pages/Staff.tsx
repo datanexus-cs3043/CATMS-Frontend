@@ -28,7 +28,7 @@ export default function Staff() {
   const [showModal, setShowModal] = useState(false);
   const [editingStaff, setEditingStaff] = useState<Staff | null>(null);
   const blankForm = {
-    first_name: '', last_name: '', email: '', contact_details: '',
+    first_name: '', last_name: '', email: '', username: '', contact_details: '',
     staff_type: 'Medical', role: 'Doctor', branch_id: 1, doctor_license_number: '',
   };
   const [form, setForm] = useState<Record<string, any>>(blankForm);
@@ -72,7 +72,7 @@ export default function Staff() {
         setSuccessMsg(`${form.first_name} ${form.last_name} updated successfully.`);
       } else {
         await staffService.create(form as Partial<Staff>);
-        setSuccessMsg(`${form.first_name} ${form.last_name} added as ${form.role}.`);
+        setSuccessMsg(`${form.first_name} ${form.last_name} added as ${form.role}. Default password: password123.`);
       }
       setShowModal(false);
       setEditingStaff(null);
@@ -246,6 +246,16 @@ export default function Staff() {
                     <label className="form-label">Email *</label>
                     <input type="email" className="form-control" required disabled={!!editingStaff && !isAdmin} value={form.email || ''} onChange={e => setForm({...form, email: e.target.value})} />
                   </div>
+                  <div className="form-group">
+                    {!editingStaff && (
+                      <>
+                        <label className="form-label">Username *</label>
+                        <input className="form-control" required minLength={3} value={form.username || ''} onChange={e => setForm({...form, username: e.target.value})} />
+                      </>
+                    )}
+                  </div>
+                </div>
+                <div className="form-row">
                   <div className="form-group">
                     <label className="form-label">Contact</label>
                     <input className="form-control" value={form.contact_details || ''} onChange={e => setForm({...form, contact_details: e.target.value})} />
