@@ -1,4 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
+import { useDialog } from '../components/DialogProvider';
+import { appointmentActionError } from '../utils/appointmentActionError';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../auth/AuthContext';
 import {
@@ -28,6 +30,7 @@ const emptyBooking = (doctorId = '') => ({
 
 export default function MyAppointments() {
   const { user, isDoctor, isPatient } = useAuth();
+  const { confirmAction } = useDialog();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
 
@@ -45,6 +48,8 @@ export default function MyAppointments() {
   const [submitting, setSubmitting] = useState(false);
   const [bookError, setBookError] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
+  const [actionError, setActionError] = useState('');
+  const cancelPending = useRef(false);
 
   useEffect(() => {
     load();
@@ -119,19 +124,28 @@ export default function MyAppointments() {
   };
 
   const handleCancel = async (appt: Appointment) => {
-    if (!confirm(`Cancel your appointment on ${appt.appointment_date} at ${appt.start_time}?`)) return;
+    if (cancelPending.current) return;
+    cancelPending.current = true;
     try {
+      if (!await confirmAction(`Cancel your appointment on ${appt.appointment_date} at ${appt.start_time}?`, {
+        title: 'Cancel appointment', confirmLabel: 'Cancel appointment', danger: true,
+      })) return;
+      setActionError('');
+      setSuccessMsg('');
       await appointmentService.cancel(appt.appointment_id);
       setSuccessMsg('Appointment cancelled.');
       setTimeout(() => setSuccessMsg(''), 3000);
       load();
     } catch (err) {
-      alert(apiErrorMessage(err, 'Cancellation failed.'));
+      setActionError(appointmentActionError(err));
+    } finally {
+      cancelPending.current = false;
     }
   };
 
   return (
     <div style={{ animation: 'fadeIn 0.3s ease' }}>
+      {actionError && <div className="alert alert-error" role="alert">{actionError}</div>}
       <div className="section-header" style={{ marginBottom: 24 }}>
         <div>
           <h2 style={{ fontSize: 22, fontWeight: 600, color: 'var(--gray-900)', margin: 0 }}>

@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useDialog } from '../components/DialogProvider';
 import { useAuth } from '../auth/AuthContext';
 import { KeyRound } from 'lucide-react';
 import {
@@ -13,6 +14,7 @@ const labelStyle: React.CSSProperties = {
 
 
 export default function MyProfile() {
+  const { confirmAction } = useDialog();
   const { user, isDoctor, isPatient, updateUser } = useAuth();
 
   const [doctor, setDoctor] = useState<Doctor | null>(null);
@@ -109,7 +111,9 @@ export default function MyProfile() {
   };
 
   const removeContact = async (c: EmergencyContact) => {
-    if (!user?.patient_id || !confirm(`Remove ${c.contact_name} from your emergency contacts?`)) return;
+    if (!user?.patient_id || !await confirmAction(`Remove ${c.contact_name} from your emergency contacts?`, {
+      title: 'Remove emergency contact', confirmLabel: 'Remove contact', danger: true,
+    })) return;
     try {
       await patientService.deleteEmergencyContact(c.emergency_contact_id);
       setContacts(await patientService.getEmergencyContacts(user.patient_id));

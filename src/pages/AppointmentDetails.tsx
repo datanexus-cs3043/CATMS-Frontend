@@ -7,11 +7,14 @@ import {
 import { useAuth } from '../auth/AuthContext';
 import { localDate } from '../utils/date';
 import { statusBadge } from './Appointments';
+import { useDialog } from '../components/DialogProvider';
+import { appointmentActionError } from '../utils/appointmentActionError';
 
 export default function AppointmentDetails() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { isAdmin, isManager, isCashier, isDoctor, isPatient, user } = useAuth();
+  const { confirmAction } = useDialog();
   const isStaff = isAdmin || isManager || isCashier;
   const canBill = isAdmin || isCashier;
   // Consultation notes are clinical records: the backend serves them only to admin, manager and doctors.
@@ -73,7 +76,7 @@ export default function AppointmentDetails() {
       flash('success', success);
       await load();
     } catch (err) {
-      flash('error', apiErrorMessage(err));
+      flash('error', appointmentActionError(err));
     } finally {
       setBusy(false);
     }
@@ -156,7 +159,11 @@ export default function AppointmentDetails() {
                 <span className="badge badge-info">{appt.appointment_type}</span>
                 {canComplete && (
                   <button className="btn btn-primary btn-sm" disabled={busy}
-                    onClick={() => confirm('Mark this appointment as completed?') && run(() => appointmentService.complete(apptId), 'Appointment marked as completed.')}>
+                    onClick={async () => {
+                      if (await confirmAction('Mark this appointment as completed?', { title: 'Complete appointment', confirmLabel: 'Mark completed' })) {
+                        await run(() => appointmentService.complete(apptId), 'Appointment marked as completed.');
+                      }
+                    }}>
                     Mark Completed
                   </button>
                 )}
@@ -164,7 +171,11 @@ export default function AppointmentDetails() {
                   <>
                     <button className="btn btn-secondary btn-sm" onClick={() => { setRescheduleForm({ appointment_date: appt.appointment_date, start_time: appt.start_time.slice(0, 5), end_time: appt.end_time.slice(0, 5) }); setRescheduleError(''); setShowReschedule(true); }}>Reschedule</button>
                     <button className="btn btn-danger btn-sm" disabled={busy}
-                      onClick={() => confirm('Are you sure you want to cancel this appointment?') && run(() => appointmentService.cancel(apptId), 'Appointment cancelled.')}>
+                      onClick={async () => {
+                        if (await confirmAction('Are you sure you want to cancel this appointment?', { title: 'Cancel appointment', confirmLabel: 'Cancel appointment', danger: true })) {
+                          await run(() => appointmentService.cancel(apptId), 'Appointment cancelled.');
+                        }
+                      }}>
                       Cancel
                     </button>
                   </>
