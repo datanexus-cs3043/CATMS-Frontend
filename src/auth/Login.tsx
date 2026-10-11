@@ -23,9 +23,9 @@ const loginErrorMessage = (error: unknown): string => {
   if (error.code === 'ECONNABORTED') return 'Sign-in timed out. Please try again.';
   if (!error.response) return 'Cannot reach the sign-in service. Check your connection and try again.';
   const status = error.response.status;
-  if (status === 401 || status === 403) return 'Invalid username or password.';
+  if (status === 401 || status === 403) return 'Incorrect username/email or password.';
   if (status === 429) return 'Too many sign-in attempts. Please wait before trying again.';
-  if (status === 422) return 'Enter a valid username and password.';
+  if (status === 422) return 'Enter your username or email and password.';
   return 'The sign-in service is unavailable. Please try again later.';
 };
 
@@ -93,11 +93,16 @@ export const Login: React.FC = () => {
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     if (loginPending.current) return;
+    const identifier = loginForm.username.trim();
+    if (!identifier) {
+      setLoginError('Enter your username or email.');
+      return;
+    }
     loginPending.current = true;
     setLoginLoading(true);
     setLoginError('');
     try {
-      await login(loginForm.username, loginForm.password);
+      await login(identifier, loginForm.password);
       navigate('/dashboard');
     } catch (err) {
       setLoginError(loginErrorMessage(err));
@@ -221,13 +226,16 @@ export const Login: React.FC = () => {
               <form onSubmit={handleLogin}>
                 <div className="form-group">
                   <label className="form-label" htmlFor="username">
-                    Username
+                    Username or email
                   </label>
                   <input
                     id="username"
+                    type="text"
                     className="form-control"
                     autoComplete="username"
-                    placeholder="Enter your username"
+                    autoCapitalize="none"
+                    spellCheck={false}
+                    placeholder="Enter your username or email"
                     required
                     disabled={loginLoading}
                     value={loginForm.username}

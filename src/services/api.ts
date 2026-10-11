@@ -399,6 +399,7 @@ const isAuthUser = (value: unknown): value is AuthUser => {
 };
 
 export const authService = {
+  // The API retains the username key for compatibility; its value may be username or account email.
   login: async (credentials: { username: string; password: string }): Promise<LoginResponse> => {
     clearCsrfToken();
     const res = await api.post<LoginResponse>('/auth/login', credentials, { timeout: 15000 });
