@@ -404,7 +404,7 @@ export default function Insurance() {
             </div>
             <div className="modal-body">
               <p style={{ fontSize: 13, color: 'var(--gray-500)', marginBottom: 12 }}>
-                These are the recorded policy terms for staff review. Invoice generation does not automatically file a claim, and claim approval does not record insurer settlement. Percentage and maximum rules must be checked before submission.
+                MedSync applies each treatment’s percentage and maximum once per invoice, combining repeated treatment lines. Unlisted treatments have no eligible coverage. Approval remains manual and does not record insurer settlement or reduce the ledger balance. Annual benefit limits are not modeled.
               </p>
               {error && <div className="alert alert-error">{error}</div>}
               {coverages.length === 0 ? (
@@ -412,7 +412,7 @@ export default function Insurance() {
               ) : (
                 <div className="table-container" style={{ marginBottom: 16 }}>
                   <table>
-                    <thead><tr><th>Treatment</th><th>Coverage %</th><th>Maximum</th></tr></thead>
+                    <thead><tr><th>Treatment</th><th>Coverage %</th><th>Maximum per invoice</th></tr></thead>
                     <tbody>
                       {coverages.map(c => (
                         <tr key={c.coverage_id}>
@@ -441,7 +441,7 @@ export default function Insurance() {
                     <input type="number" min={1} max={100} className="form-control" required value={coverageForm.coverage_percentage} onChange={e => setCoverageForm({ ...coverageForm, coverage_percentage: e.target.value })} />
                   </div>
                   <div className="form-group" style={{ flex: '1 1 120px', marginBottom: 0 }}>
-                    <label className="form-label">Max (Rs.) *</label>
+                    <label className="form-label">Maximum per invoice (Rs.) *</label>
                     <input type="number" min={1} className="form-control" required value={coverageForm.maximum_amount} onChange={e => setCoverageForm({ ...coverageForm, maximum_amount: e.target.value })} />
                   </div>
                   <button type="submit" className="btn btn-primary" disabled={submitting || coverageLoading || coverageUnavailable}>{submitting ? 'Adding...' : 'Add'}</button>

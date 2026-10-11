@@ -12,6 +12,28 @@ import { useDialog } from '../components/DialogProvider';
 const money = (n?: number) => `Rs. ${Number(n ?? 0).toLocaleString()}`;
 const th: React.CSSProperties = { padding: '10px 14px', fontSize: 12, fontWeight: 600, color: 'var(--gray-500)', textTransform: 'uppercase' };
 
+// Display estimate only: the API repeats this calculation with exact Decimal arithmetic.
+export const estimatePolicyCoverage = (policy: InsurancePolicy, items: InvoiceItem[]): number => {
+  const billedByTreatment = new Map<number, number>();
+  for (const item of items) {
+    const cents = Math.round(Number(item.unitprice) * 100) * Number(item.quantity);
+    if (!Number.isSafeInteger(cents) || cents < 0) return 0;
+    billedByTreatment.set(item.treatment_id, (billedByTreatment.get(item.treatment_id) || 0) + cents);
+  }
+  let total = 0;
+  const seen = new Set<number>();
+  for (const coverage of policy.coverages || []) {
+    if (seen.has(coverage.treatment_id)) return 0;
+    seen.add(coverage.treatment_id);
+    const billed = billedByTreatment.get(coverage.treatment_id) || 0;
+    const percentage = Number(coverage.coverage_percentage);
+    const cap = Math.round(Number(coverage.maximum_amount) * 100);
+    if (!Number.isSafeInteger(billed) || !Number.isSafeInteger(cap) || cap < 0 || !Number.isFinite(percentage) || percentage < 0 || percentage > 100) return 0;
+    total += Math.min(Math.floor(billed * percentage / 100 + 0.000001), cap);
+  }
+  return Number.isSafeInteger(total) ? total / 100 : 0;
+};
+
 export default function InvoiceDetails() {
   const { requestInput, confirmAction } = useDialog();
   const { id } = useParams<{ id: string }>();
@@ -110,8 +132,8 @@ export default function InvoiceDetails() {
     if (!invoice || mutationPending.current || loadError) return;
     setModalError('');
     const amount = Number(claimForm.claim_amount);
-    if (!claimForm.claim_amount.trim() || !Number.isFinite(amount) || amount <= 0 || amount > remainingClaimAmount) {
-      setModalError('Enter a positive claim within the unclaimed billed amount.');
+    if (!claimForm.claim_amount.trim() || !Number.isFinite(amount) || amount <= 0 || amount > selectedPolicyRemaining) {
+      setModalError('Enter a positive claim within the selected policy’s remaining eligible coverage for this invoice.');
       return;
     }
     mutationPending.current = true;
@@ -174,6 +196,14 @@ export default function InvoiceDetails() {
   const activePolicies = policies.filter(p => p.status === 'Active' && p.start_date <= invoice.invoice_date && p.end_date >= invoice.invoice_date);
   const remainingClaimAmount = Math.max(0, Number(invoice.total_amount ?? 0) - claims.reduce((sum, claim) =>
     sum + (claim.status === 'Pending' ? Number(claim.claim_amount) : claim.status === 'Approved' ? Number(claim.approved_amount) : 0), 0));
+  const remainingForPolicy = (policy: InsurancePolicy) => {
+    const reserved = claims.filter(claim => claim.policy_id === policy.policy_id).reduce((sum, claim) =>
+      sum + (claim.status === 'Pending' ? Number(claim.claim_amount) : claim.status === 'Approved' ? Number(claim.approved_amount) : 0), 0);
+    return Math.max(0, Math.min(remainingClaimAmount, estimatePolicyCoverage(policy, items) - reserved));
+  };
+  const eligiblePolicies = activePolicies.filter(policy => remainingForPolicy(policy) > 0);
+  const selectedPolicy = eligiblePolicies.find(policy => String(policy.policy_id) === claimForm.policy_id);
+  const selectedPolicyRemaining = selectedPolicy ? remainingForPolicy(selectedPolicy) : 0;
   const mutationsDisabled = !!loadError || paying || claiming || updatingClaim !== null;
 
   return (
@@ -347,10 +377,11 @@ export default function InvoiceDetails() {
                 <p style={{ fontSize: 12, color: 'var(--gray-500)', marginBottom: 12 }}>
                   {activePolicies.length ? `${activePolicies.length} polic${activePolicies.length > 1 ? 'ies' : 'y'} active on the invoice date.` : 'No policy is active on the invoice date.'}
                 </p>
-                <button className="btn btn-secondary w-full" disabled={mutationsDisabled || !activePolicies.length || remainingClaimAmount <= 0 || !!sectionErrors['Insurance claims'] || !!sectionErrors['Insurance policies']}
-                  onClick={() => { setClaimForm({ policy_id: String(activePolicies[0]?.policy_id || ''), claim_amount: '', claim_date: localDate(0) }); setModalError(''); setShowClaimModal(true); }}>
+                <button className="btn btn-secondary w-full" disabled={mutationsDisabled || !eligiblePolicies.length || remainingClaimAmount <= 0 || !!sectionErrors['Treatment items'] || !!sectionErrors['Insurance claims'] || !!sectionErrors['Insurance policies']}
+                  onClick={() => { setClaimForm({ policy_id: String(eligiblePolicies[0]?.policy_id || ''), claim_amount: '', claim_date: localDate(0) }); setModalError(''); setShowClaimModal(true); }}>
                   File Claim
                 </button>
+                {!eligiblePolicies.length && !sectionErrors['Treatment items'] && !sectionErrors['Insurance policies'] && <p className="text-muted" style={{ marginTop: 8 }}>No active policy has remaining eligible treatment coverage for this invoice. Review its coverage terms and existing claims.</p>}
               </div>
             </div>
           )}
@@ -432,13 +463,14 @@ export default function InvoiceDetails() {
                 <div className="form-group">
                   <label className="form-label">Policy *</label>
                   <select className="form-control" required value={claimForm.policy_id} onChange={e => setClaimForm({ ...claimForm, policy_id: e.target.value })}>
-                    {activePolicies.map(p => <option key={p.policy_id} value={p.policy_id}>{p.provider_name} · #{p.policy_number}</option>)}
+                    {eligiblePolicies.map(p => <option key={p.policy_id} value={p.policy_id}>{p.provider_name} · #{p.policy_number} · up to {money(remainingForPolicy(p))}</option>)}
                   </select>
                 </div>
                 <div className="form-group">
                   <label className="form-label">Claim Amount (Rs.) *</label>
-                  <input type="number" className="form-control" required min="0.01" step="0.01" max={remainingClaimAmount} value={claimForm.claim_amount}
-                    onChange={e => setClaimForm({ ...claimForm, claim_amount: e.target.value })} placeholder={`Up to ${money(remainingClaimAmount)} unclaimed`} />
+                  <input type="number" className="form-control" required min="0.01" step="0.01" max={selectedPolicyRemaining} value={claimForm.claim_amount}
+                    onChange={e => setClaimForm({ ...claimForm, claim_amount: e.target.value })} placeholder={`Up to ${money(selectedPolicyRemaining)} eligible`} />
+                  <p className="text-muted">MedSync applies each treatment’s percentage and maximum once per invoice, including repeated treatment lines. Approval remains manual; approval is not a receipt or a balance reduction. Annual benefit limits are not modeled.</p>
                 </div>
                 <div className="form-group">
                   <label className="form-label">Claim Date *</label>
@@ -447,7 +479,7 @@ export default function InvoiceDetails() {
               </div>
               <div className="modal-footer">
                 <button type="button" className="btn btn-ghost" onClick={() => setShowClaimModal(false)}>Cancel</button>
-                <button type="submit" className="btn btn-primary" disabled={mutationsDisabled}>{claiming ? 'Submitting...' : 'Submit Claim'}</button>
+                <button type="submit" className="btn btn-primary" disabled={mutationsDisabled || selectedPolicyRemaining <= 0}>{claiming ? 'Submitting...' : 'Submit Claim'}</button>
               </div>
             </form>
           </div>
