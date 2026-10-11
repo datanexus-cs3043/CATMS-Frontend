@@ -26,6 +26,8 @@ import MyAppointments from './pages/Myappointments';
 import MyBills from './pages/MyBills';
 import MyProfile from './pages/MyProfile';
 import MyPatients from './pages/MyPatients';
+import ChangePassword from './pages/ChangePassword';
+import UserManagement from './pages/UserManagement';
 import LandingPage from './pages/LandingPage';
 
 // App layout: sidebar (drawer on small screens), top bar and page content
@@ -70,6 +72,7 @@ export default function App() {
           >
             {/* ── Dashboard (all roles) ─────────────────────────── */}
             <Route path="/dashboard" element={<Dashboard />} />
+            <Route path="/change-password" element={<ChangePassword />} />
 
             {/* ── Role-specific personal pages ─────────────────── */}
             <Route
@@ -194,6 +197,14 @@ export default function App() {
               element={
                 <ProtectedRoute allowedRoles={['admin', 'branch_manager']}>
                   <Staff />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/users"
+              element={
+                <ProtectedRoute allowedRoles={['admin']}>
+                  <UserManagement />
                 </ProtectedRoute>
               }
             />
