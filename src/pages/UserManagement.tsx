@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { KeyRound } from 'lucide-react';
 import { apiErrorMessage, userService } from '../services/api';
 import type { User } from '../services/api';
 
@@ -8,6 +9,7 @@ export default function UserManagement() {
   const [resettingId, setResettingId] = useState<number | null>(null);
   const [error, setError] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
+  const [selectedUser, setSelectedUser] = useState<User | null>(null);
 
   const loadUsers = async () => {
     setIsLoading(true);
@@ -25,8 +27,6 @@ export default function UserManagement() {
 
   const resetPassword = async (user: User) => {
     const displayName = `${user.first_name || ''} ${user.last_name || ''}`.trim() || user.username;
-    if (!window.confirm(`Reset ${displayName}'s password to password123?`)) return;
-
     setResettingId(user.user_id);
     setError('');
     setSuccessMsg('');
@@ -37,6 +37,7 @@ export default function UserManagement() {
       setError(apiErrorMessage(err, 'Unable to reset the password.'));
     } finally {
       setResettingId(null);
+      setSelectedUser(null);
     }
   };
 
@@ -87,7 +88,7 @@ export default function UserManagement() {
                       <button
                         className="btn btn-secondary btn-sm"
                         type="button"
-                        onClick={() => resetPassword(user)}
+                        onClick={() => setSelectedUser(user)}
                         disabled={resettingId === user.user_id}
                       >
                         {resettingId === user.user_id ? 'Resetting...' : 'Reset Password'}
@@ -100,6 +101,34 @@ export default function UserManagement() {
           </div>
         )}
       </div>
+
+      {selectedUser && (
+        <div className="modal-overlay" onClick={() => setSelectedUser(null)}>
+          <div className="modal" role="dialog" aria-modal="true" aria-labelledby="reset-password-title" onClick={event => event.stopPropagation()}>
+            <div className="modal-header">
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <KeyRound size={20} color="var(--primary)" aria-hidden="true" />
+                <h3 id="reset-password-title" className="modal-title">Reset Password</h3>
+              </div>
+              <button className="modal-close" type="button" onClick={() => setSelectedUser(null)} aria-label="Close reset password dialog" />
+            </div>
+            <div className="modal-body">
+              <p style={{ color: 'var(--gray-700)' }}>
+                Reset <strong>{`${selectedUser.first_name || ''} ${selectedUser.last_name || ''}`.trim() || selectedUser.username}</strong>'s password to the default password?
+              </p>
+              <div className="alert alert-info" style={{ marginTop: 16 }}>
+                The password will be reset to <strong>password123</strong>.
+              </div>
+            </div>
+            <div className="modal-footer">
+              <button className="btn btn-ghost" type="button" onClick={() => setSelectedUser(null)}>Cancel</button>
+              <button className="btn btn-primary" type="button" onClick={() => resetPassword(selectedUser)} disabled={resettingId === selectedUser.user_id}>
+                {resettingId === selectedUser.user_id ? 'Resetting...' : 'Reset Password'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
