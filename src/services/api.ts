@@ -364,7 +364,11 @@ api.interceptors.request.use(async (cfg: InternalAxiosRequestConfig) => {
 
 // Expired or stale CSRF token: get a fresh one and retry the request once.
 api.interceptors.response.use(
-  res => res,
+  res => {
+    // Reads that began before an acknowledged write must not serve its refresh.
+    if (CSRF_METHODS.includes((res.config.method || 'get').toLowerCase())) pendingReads.clear();
+    return res;
+  },
   async (error) => {
     if (isCsrfRejection(error) && error.config && !error.config._csrfRetried) {
       clearCsrfToken();
