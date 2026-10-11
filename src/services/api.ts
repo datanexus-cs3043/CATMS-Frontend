@@ -39,19 +39,6 @@ export interface PasswordResetResponse {
   message: string;
 }
 
-export interface RegisterRequest {
-  first_name: string;
-  last_name: string;
-  email: string;
-  username: string;
-  password: string;
-  contact_details?: string;
-  date_of_birth: string;
-  gender: string;
-  address?: string;
-  branch_id: number;
-}
-
 // ── Domain Types ─────────────────────────────────────────────────────────────
 export interface Branch {
   branch_id: number;
@@ -128,6 +115,7 @@ export interface Patient {
   address?: string;
   user_id: number;
   branch_name?: string;
+  emergency_contacts?: EmergencyContact[];
 }
 
 export interface EmergencyContact {
@@ -319,6 +307,7 @@ export interface InsuranceSummary {
 const api = axios.create({
   baseURL: import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api',
   withCredentials: true,
+  timeout: 20000,
   headers: { 'Content-Type': 'application/json' },
 });
 
@@ -329,10 +318,13 @@ const api = axios.create({
 const CSRF_METHODS = ['post', 'put', 'patch', 'delete'];
 let csrfToken: string | null = null;
 let csrfRequest: Promise<string> | null = null;
+// Coalesce only simultaneous reads, not a persistent cache of medical records.
+const pendingReads = new Map<string, Promise<unknown>>();
 
 const clearCsrfToken = () => {
   csrfToken = null;
   csrfRequest = null;
+  pendingReads.clear();
 };
 
 const fetchCsrfToken = (): Promise<string> => {
@@ -406,10 +398,6 @@ export const authService = {
     if (!isAuthUser(res.data?.user)) throw new Error('Invalid sign-in response');
     return res.data;
   },
-  register: async (data: RegisterRequest): Promise<LoginResponse> => {
-    const res = await api.post<LoginResponse>('/auth/register', data);
-    return res.data;
-  },
   getMe: async (): Promise<AuthUser> => {
     const res = await api.get<AuthUser>('/auth/me', { timeout: 15000 });
     if (!isAuthUser(res.data)) throw new Error('Invalid session response');
@@ -437,8 +425,34 @@ export const userService = {
 
 // ── Generic CRUD helpers ──────────────────────────────────────────────────────
 const get = async <T>(url: string, params?: Record<string, unknown>): Promise<T> => {
-  const res = await api.get<T>(url, { params });
-  return res.data;
+  const key = JSON.stringify([url, Object.entries(params || {}).sort(([a], [b]) => a.localeCompare(b))]);
+  const pending = pendingReads.get(key);
+  if (pending) return pending as Promise<T>;
+  const request = api.get<T>(url, { params }).then(res => res.data);
+  pendingReads.set(key, request);
+  try { return await request; }
+  finally { if (pendingReads.get(key) === request) pendingReads.delete(key); }
+};
+
+/** Only for endpoints that actually implement skip/limit, with stable unique IDs. */
+const getPages = async <T>(url: string, idField: keyof T, params?: Record<string, unknown>, read?: (row: unknown) => T): Promise<T[]> => {
+  const rows: T[] = [];
+  const seen = new Set<number>();
+  for (let skip = 0; skip < 100000; skip += 100) {
+    const page = await get<unknown[]>(url, { ...params, skip, limit: 100 });
+    if (!Array.isArray(page) || page.length > 100) throw new Error('Invalid paginated response. Please reload.');
+    for (const value of page) {
+      const row = read ? read(value) : value as T;
+      const id = row && Number(row[idField]);
+      if (!Number.isSafeInteger(id) || Number(id) <= 0 || seen.has(Number(id))) {
+        throw new Error('The list changed while loading or returned invalid records. Please reload.');
+      }
+      seen.add(Number(id));
+      rows.push(row);
+    }
+    if (page.length < 100) return rows;
+  }
+  throw new Error('Too many records to load safely. Narrow the list filters.');
 };
 const post = async <T>(url: string, data?: unknown): Promise<T> => {
   const res = await api.post<T>(url, data);
@@ -556,6 +570,10 @@ export const treatmentService = {
     get<Treatment[]>('/treatments', params as Record<string, unknown>),
   getById: (id: number) => get<Treatment>(`/treatments/${id}`),
   getCategories: () => get<TreatmentCategory[]>('/treatment-categories'),
+  createCategory: (data: { category_name: string; description?: string | null }) =>
+    post<TreatmentCategory>('/treatment-categories', data),
+  updateCategory: (id: number, data: { category_name?: string; description?: string | null }) =>
+    put<TreatmentCategory>(`/treatment-categories/${id}`, data),
   create: (data: Partial<Treatment>) => post<Treatment>('/treatments', data),
   update: (id: number, data: Partial<Treatment>) => put<Treatment>(`/treatments/${id}`, data),
 };
@@ -563,14 +581,16 @@ export const treatmentService = {
 // ── Patient Service ───────────────────────────────────────────────────────────
 export const patientService = {
   getAll: (params?: { branch_id?: number; search?: string }) =>
-    get<Patient[]>('/patients', params as Record<string, unknown>),
+    getPages<Patient>('/patients', 'patient_id', params as Record<string, unknown>),
   getById: (id: number) => get<Patient>(`/patients/${id}`),
-  create: (data: Partial<Patient>) => post<Patient>('/patients', data),
+  create: (data: Partial<Patient> & { emergency_contact?: Pick<EmergencyContact, 'contact_name' | 'relationship' | 'phone'> }) =>
+    post<Patient>('/patients', data),
   update: (id: number, data: Partial<Patient>) => put<Patient>(`/patients/${id}`, data),
   getEmergencyContacts: (id: number) => get<EmergencyContact[]>(`/patients/${id}/emergency-contacts`),
   addEmergencyContact: (id: number, data: Partial<EmergencyContact>) =>
     post<EmergencyContact>(`/patients/${id}/emergency-contacts`, data),
-  deleteEmergencyContact: (contactId: number) => del(`/emergency-contacts/${contactId}`),
+  deleteEmergencyContact: (patientId: number, contactId: number) =>
+    del(`/patients/${patientId}/emergency-contacts/${contactId}`),
   getInsurancePolicies: (id: number) => get<InsurancePolicy[]>(`/patients/${id}/insurance`),
 };
 
@@ -615,8 +635,14 @@ export const appointmentService = {
     doctor_id?: number;
     branch_id?: number;
     date?: string;
+    appointment_date?: string;
     status?: string;
-  }) => get<Appointment[]>('/appointments', params as Record<string, unknown>),
+  }) => {
+    const { date, ...filters } = params || {};
+    return getPages<Appointment>('/appointments', 'appointment_id', {
+      ...filters, appointment_date: filters.appointment_date || date,
+    });
+  },
   complete: (id: number) => put<Appointment>(`/appointments/${id}/complete`),
   getTreatments: (id: number) => get<AppointmentTreatment[]>(`/appointments/${id}/treatments`),
   addTreatment: (id: number, data: { treatment_id: number; quantity: number }) =>
@@ -625,6 +651,11 @@ export const appointmentService = {
     del(`/appointments/${id}/treatments/${appointmentTreatmentId}`),
   getById: (id: number) => get<Appointment>(`/appointments/${id}`),
   create: (data: Partial<Appointment>) => post<Appointment>('/appointments', data),
+  createEmergency: (data: Partial<Appointment>) => post<Appointment>('/appointments/emergency', {
+    patient_id: data.patient_id, doctor_id: data.doctor_id, branch_id: data.branch_id,
+    appointment_date: data.appointment_date, start_time: data.start_time, end_time: data.end_time,
+    treatment_id: data.treatment_id,
+  }),
   update: (id: number, data: Partial<Appointment>) => put<Appointment>(`/appointments/${id}`, data),
   cancel: async (id: number): Promise<Appointment> => {
     const res = await api.put<Appointment>(`/appointments/${id}/cancel`, undefined, { timeout: 15000 });
