@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { staffService, branchService, apiErrorMessage, Branch } from '../services/api';
 import type { Staff } from '../services/api';
 import { useAuth } from '../auth/AuthContext';
+import FilteredCount from '../components/FilteredCount';
 
 
 const roleColor: Record<string, { color: string; bg: string }> = {
@@ -94,7 +95,7 @@ export default function Staff() {
       <div className="section-header">
         <div>
           <h2 style={{ fontSize: 20, fontWeight: 700, color: 'var(--gray-900)', margin: 0 }}>Staff Directory</h2>
-          <p style={{ fontSize: 13, color: 'var(--gray-500)', marginTop: 2 }}>{filtered.length} of {staffList.length} staff members</p>
+          <FilteredCount filtered={filtered.length} total={staffList.length} label="staff members" />
         </div>
         <div className="page-actions">
           <div className="search-box">
@@ -126,20 +127,6 @@ export default function Staff() {
             </button>
           )}
         </div>
-      </div>
-
-      {/* Branch summaries */}
-      <div className="stats-grid" style={{ marginBottom: 24 }}>
-        {branches.map(b => {
-          const count = staffList.filter(s => s.branch_id === b.branch_id).length;
-          return (
-            <div key={b.branch_id} className="card" style={{ padding: '16px 20px', cursor: 'pointer' }} onClick={() => setFilterBranch(String(b.branch_id))}>
-              <div style={{ fontWeight: 700, fontSize: 20, color: 'var(--primary)' }}>{count}</div>
-              <div style={{ fontSize: 13, color: 'var(--gray-700)', fontWeight: 600 }}>{b.branch_name}</div>
-              <div style={{ fontSize: 12, color: 'var(--gray-400)' }}>{b.location}</div>
-            </div>
-          );
-        })}
       </div>
 
       <div className="card">
