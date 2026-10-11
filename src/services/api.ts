@@ -308,12 +308,11 @@ export interface OutstandingPatient {
 }
 
 export interface InsuranceSummary {
-  total_claims: number;
-  total_billed?: number;
-  out_of_pocket_paid?: number;
-  approved_amount: number;
-  out_of_pocket: number;
-  pending_amount: number;
+  invoiced_amount: number;
+  insurance_approved_amount: number;
+  patient_paid_amount: number;
+  out_of_pocket_amount: number;
+  outstanding_amount: number;
 }
 
 // ── Axios Instance ────────────────────────────────────────────────────────────
