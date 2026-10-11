@@ -113,7 +113,7 @@ export interface Patient {
   contact_details?: string;
   email?: string;
   address?: string;
-  user_id: number;
+  user_id?: number | null;
   branch_name?: string;
   emergency_contacts?: EmergencyContact[];
 }
@@ -318,10 +318,12 @@ const api = axios.create({
 const CSRF_METHODS = ['post', 'put', 'patch', 'delete'];
 let csrfToken: string | null = null;
 let csrfRequest: Promise<string> | null = null;
+let csrfGeneration = 0;
 // Coalesce only simultaneous reads, not a persistent cache of medical records.
 const pendingReads = new Map<string, Promise<unknown>>();
 
 const clearCsrfToken = () => {
+  csrfGeneration++;
   csrfToken = null;
   csrfRequest = null;
   pendingReads.clear();
@@ -330,13 +332,15 @@ const clearCsrfToken = () => {
 const fetchCsrfToken = (): Promise<string> => {
   if (csrfToken) return Promise.resolve(csrfToken);
   if (!csrfRequest) {
+    const generation = csrfGeneration;
     const request: Promise<string> = api
       .get<{ csrf_token: string }>('/auth/csrf', { timeout: 15000 })
       .then((res: AxiosResponse<{ csrf_token: string }>) => {
+        if (generation !== csrfGeneration) throw new Error('The session changed while requesting CSRF protection. Please try again.');
         csrfToken = res.data.csrf_token;
         return res.data.csrf_token;
       })
-      .finally(() => { csrfRequest = null; });
+      .finally(() => { if (csrfRequest === request) csrfRequest = null; });
     csrfRequest = request;
     return request;
   }
@@ -373,11 +377,22 @@ api.interceptors.response.use(
 
 /** Extract a readable message from an API error. */
 export const apiErrorMessage = (err: any, fallback = 'Something went wrong. Please try again.'): string => {
+  if (err instanceof PaymentOutcomeError) return err.message;
   const detail = err?.response?.data?.detail;
   if (typeof detail === 'string') return detail;
   if (Array.isArray(detail) && detail[0]?.msg) return detail[0].msg;
   return fallback;
 };
+
+/** Do not turn a committed receipt or uncertain network outcome into a retry prompt. */
+export class PaymentOutcomeError extends Error {
+  constructor(public readonly outcome: 'recorded' | 'unknown') {
+    super(outcome === 'recorded'
+      ? 'The payment was recorded, but the updated invoice could not be loaded. Check the receipt history and refresh before entering any further payment.'
+      : 'The payment outcome could not be confirmed. Check the receipt history and current balance before retrying; do not submit the same payment again until it is reconciled.');
+    this.name = 'PaymentOutcomeError';
+  }
+}
 
 // ── Auth Service ──────────────────────────────────────────────────────────────
 const isAuthUser = (value: unknown): value is AuthUser => {
@@ -583,8 +598,8 @@ export const patientService = {
   getAll: (params?: { branch_id?: number; search?: string }) =>
     getPages<Patient>('/patients', 'patient_id', params as Record<string, unknown>),
   getById: (id: number) => get<Patient>(`/patients/${id}`),
-  create: (data: Partial<Patient> & { emergency_contact?: Pick<EmergencyContact, 'contact_name' | 'relationship' | 'phone'> }) =>
-    post<Patient>('/patients', data),
+  create: (data: Partial<Patient> & { portal_username?: string; emergency_contact?: Pick<EmergencyContact, 'contact_name' | 'relationship' | 'phone'> }) =>
+    post<Patient & { portal_username?: string | null }>('/patients', data),
   update: (id: number, data: Partial<Patient>) => put<Patient>(`/patients/${id}`, data),
   getEmergencyContacts: (id: number) => get<EmergencyContact[]>(`/patients/${id}/emergency-contacts`),
   addEmergencyContact: (id: number, data: Partial<EmergencyContact>) =>
@@ -681,10 +696,16 @@ export const invoiceService = {
     post<InvoiceItem>(`/invoices/${id}/items`, data),
   /** Record a patient payment, then return the invoice with its new balance/status. */
   makePayment: async (id: number, data: { amount: number; method?: string; reference?: string }) => {
-    await post<Payment>(`/invoices/${id}/patient-payments`, {
-      amount: data.amount, payment_method: data.method || 'Cash', reference_number: data.reference || null,
-    });
-    return get<Invoice>(`/invoices/${id}`);
+    try {
+      await post<Payment>(`/invoices/${id}/patient-payments`, {
+        amount: data.amount, payment_method: data.method || 'Cash', reference_number: data.reference || null,
+      });
+    } catch (error: any) {
+      if (error?.response?.status >= 400 && error.response.status < 500) throw error;
+      throw new PaymentOutcomeError('unknown');
+    }
+    try { return await get<Invoice>(`/invoices/${id}`); }
+    catch { throw new PaymentOutcomeError('recorded'); }
   },
   getPayments: (id: number) => get<Payment[]>(`/invoices/${id}/patient-payments`),
   getAllPayments: () => get<Payment[]>('/patient-payments'),
@@ -702,12 +723,12 @@ export const reportsService = {
     get<BranchAppointmentSummary[]>('/reports/appointments-summary', params as Record<string, unknown>),
   getDoctorRevenue: (params?: { from_date?: string; to_date?: string; branch_id?: number }) =>
     get<DoctorRevenueReport[]>('/reports/doctor-revenue', params as Record<string, unknown>),
-  getOutstandingPatients: (params?: { branch_id?: number }) =>
+  getOutstandingPatients: (params?: { from_date?: string; to_date?: string; branch_id?: number }) =>
     get<OutstandingPatient[]>('/reports/outstanding-balances', params as Record<string, unknown>),
   getTreatmentCounts: (params?: { from_date?: string; to_date?: string; branch_id?: number }) =>
     get<TreatmentCountReport[]>('/reports/treatments-by-category', params as Record<string, unknown>),
-  getInsuranceSummary: () =>
-    get<InsuranceSummary>('/reports/insurance-vs-out-of-pocket'),
+  getInsuranceSummary: (params?: { from_date?: string; to_date?: string; branch_id?: number }) =>
+    get<InsuranceSummary>('/reports/insurance-vs-out-of-pocket', params as Record<string, unknown>),
 };
 
 export default api;
