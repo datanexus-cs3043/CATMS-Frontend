@@ -26,7 +26,6 @@ import MyAppointments from './pages/Myappointments';
 import MyBills from './pages/MyBills';
 import MyProfile from './pages/MyProfile';
 import MyPatients from './pages/MyPatients';
-import ChangePassword from './pages/ChangePassword';
 import UserManagement from './pages/UserManagement';
 import LandingPage from './pages/LandingPage';
 
@@ -72,7 +71,6 @@ export default function App() {
           >
             {/* ── Dashboard (all roles) ─────────────────────────── */}
             <Route path="/dashboard" element={<Dashboard />} />
-            <Route path="/change-password" element={<ChangePassword />} />
 
             {/* ── Role-specific personal pages ─────────────────── */}
             <Route
@@ -85,11 +83,7 @@ export default function App() {
             />
             <Route
               path="/my-profile"
-              element={
-                <ProtectedRoute allowedRoles={['doctor', 'patient']}>
-                  <MyProfile />
-                </ProtectedRoute>
-              }
+              element={<MyProfile />}
             />
             <Route
               path="/my-patients"
