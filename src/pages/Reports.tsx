@@ -25,6 +25,12 @@ import {
 } from 'lucide-react';
 
 type ReportType = 'branch' | 'doctor_revenue' | 'outstanding' | 'treatment' | 'insurance';
+type ReportFilter = { from: string; to: string; date: string };
+
+// React escapes screen text; the separate print document needs the same protection.
+const escapeHtml = (value: unknown) => String(value ?? '').replace(/[&<>"']/g, character => ({
+  '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+}[character]!));
 
 export default function Reports() {
   const { user, hasRole } = useAuth();
@@ -32,6 +38,8 @@ export default function Reports() {
   const [isLoading, setIsLoading] = useState(false);
   const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
   const [error, setError] = useState('');
+  const [printError, setPrintError] = useState('');
+  const [loadedReport, setLoadedReport] = useState<{ type: ReportType; filter: ReportFilter } | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
 
   // Live Database States
@@ -51,8 +59,14 @@ export default function Reports() {
   const requestVersion = useRef(0);
 
   const loadReport = async (type: ReportType, filter = dateFilter) => {
+    if (!isAuthorized) return;
     const version = ++requestVersion.current;
     const isCurrent = () => requestVersion.current === version;
+    const appliedFilter = type === 'branch'
+      ? { from: '', to: '', date: filter.date }
+      : { from: filter.from, to: filter.to, date: '' };
+    setLoadedReport(null);
+    setPrintError('');
     if (type !== 'branch' && filter.from && filter.to && filter.from > filter.to) {
       setError('From date must not be after to date.');
       setIsLoading(false);
@@ -62,15 +76,14 @@ export default function Reports() {
     setError('');
 
     try {
-      const period = { from_date: filter.from || undefined, to_date: filter.to || undefined };
+      const period = { from_date: appliedFilter.from || undefined, to_date: appliedFilter.to || undefined };
       switch (type) {
         case 'branch': {
           const res = await reportsService.getBranchAppointmentSummary({
             date: filter.date || undefined,
-            from_date: filter.from || undefined,
-            to_date: filter.to || undefined,
           });
-          if (isCurrent()) setBranchData(res || []);
+          if (!Array.isArray(res)) throw new Error('Missing branch summary.');
+          if (isCurrent()) setBranchData(res);
           break;
         }
         case 'doctor_revenue': {
@@ -78,12 +91,14 @@ export default function Reports() {
             from_date: filter.from || undefined,
             to_date: filter.to || undefined,
           });
-          if (isCurrent()) setDoctorRevData(res || []);
+          if (!Array.isArray(res)) throw new Error('Missing doctor summary.');
+          if (isCurrent()) setDoctorRevData(res);
           break;
         }
         case 'outstanding': {
-          const res = await reportsService.getOutstandingPatients();
-          if (isCurrent()) setOutstandingData(res || []);
+          const res = await reportsService.getOutstandingPatients(period);
+          if (!Array.isArray(res)) throw new Error('Missing outstanding summary.');
+          if (isCurrent()) setOutstandingData(res);
           break;
         }
         case 'treatment': {
@@ -91,18 +106,25 @@ export default function Reports() {
             from_date: filter.from || undefined,
             to_date: filter.to || undefined,
           });
-          if (isCurrent()) setTreatmentData(res || []);
+          if (!Array.isArray(res)) throw new Error('Missing treatment summary.');
+          if (isCurrent()) setTreatmentData(res);
           break;
         }
         case 'insurance': {
-          const res = await reportsService.getInsuranceSummary();
-          if (isCurrent()) setInsuranceData(res || null);
+          const res = await reportsService.getInsuranceSummary(period);
+          if (!res || ['invoiced_amount', 'insurance_approved_amount', 'patient_paid_amount', 'out_of_pocket_amount', 'outstanding_amount']
+            .some(key => res[key as keyof InsuranceSummary] == null || !Number.isFinite(Number(res[key as keyof InsuranceSummary])))) {
+            throw new Error('Missing insurance summary.');
+          }
+          if (isCurrent()) setInsuranceData(res);
           break;
         }
       }
+      if (isCurrent()) setLoadedReport({ type, filter: appliedFilter });
     } catch (err: any) {
       if (isCurrent()) {
-        setError(err?.response?.data?.detail || 'Could not retrieve report from the database.');
+        const detail = err?.response?.data?.detail;
+        setError(typeof detail === 'string' ? detail : 'Could not retrieve report from the database.');
       }
     } finally {
       if (isCurrent()) setIsLoading(false);
@@ -113,8 +135,11 @@ export default function Reports() {
     if (isAuthorized) {
       loadReport(activeReport);
     }
+    return () => { requestVersion.current += 1; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeReport]);
+  }, [activeReport, isAuthorized, user?.user_id, user?.branch_id]);
+
+  const canPrint = isAuthorized && !isLoading && !error && loadedReport?.type === activeReport;
 
   // Instant Search Filters
   const filteredBranch = useMemo(() => {
@@ -147,15 +172,21 @@ export default function Reports() {
   }, [treatmentData, searchTerm]);
 
   const formatLKR = (amount: number | string | undefined | null) => {
-    return 'Rs. ' + Number(amount || 0).toLocaleString('en-LK', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    if (amount == null || amount === '' || !Number.isFinite(Number(amount))) return 'Unavailable';
+    return 'Rs. ' + Number(amount).toLocaleString('en-LK', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   };
+
+  // This presentation-only estimate is not the API's legacy net-payment alias.
+  const estimatedPatientExposure = insuranceData
+    ? Number(insuranceData.invoiced_amount) - Number(insuranceData.insurance_approved_amount)
+    : null;
 
   const reportsConfig = [
     { key: 'branch' as const, label: '1. Branch Appointment Summary', desc: 'Daily throughput per branch categorized by status' },
     { key: 'doctor_revenue' as const, label: '2. Doctor Revenue Report', desc: 'Consultation revenue, billings, and collection efficiency' },
-    { key: 'outstanding' as const, label: '3. Outstanding Balances', desc: 'Aging report of unpaid patient invoices and overdue receivables' },
+    { key: 'outstanding' as const, label: '3. Outstanding Balances', desc: 'Unpaid invoice balances by patient, filtered by invoice date' },
     { key: 'treatment' as const, label: '4. Treatments by Category', desc: 'Clinical procedure demand volume and departmental revenue' },
-    { key: 'insurance' as const, label: '5. Insurance vs Out-of-Pocket', desc: 'Claim settlement ratios vs direct patient cash settlements' },
+    { key: 'insurance' as const, label: '5. Insurance vs Out-of-Pocket', desc: 'Billed amounts, claim approvals, net patient payments and estimated exposure' },
   ];
 
   // ── Executive SVG Donut Helper ───────────────────────────────────────────────
@@ -218,8 +249,14 @@ export default function Reports() {
     );
   };
 
-  // ── Executive PDF Generation Engine ──────────────────────────────────────────
+  // Native printing retains the executive layout; saving as PDF is a browser choice.
   const downloadReportAsPDF = () => {
+    if (!canPrint || !loadedReport || isGeneratingPdf) return;
+    const appliedFilter = loadedReport.filter;
+    const periodDescription = (appliedFilter.from || appliedFilter.to)
+      ? `Invoice period: ${appliedFilter.from || 'Start'} to ${appliedFilter.to || 'Present'}`
+      : 'All invoice dates';
+    setPrintError('');
     setIsGeneratingPdf(true);
     const dateStamp = new Date().toLocaleDateString('en-US', {
       year: 'numeric',
@@ -240,7 +277,7 @@ export default function Reports() {
 
     if (activeReport === 'branch') {
       title = 'BRANCH-WISE APPOINTMENT THROUGHPUT & STATUS AUDIT';
-      filterDescription = dateFilter.date ? `Audit Date: ${dateFilter.date}` : 'Consolidated Historical Records';
+      filterDescription = appliedFilter.date ? `Appointment date: ${appliedFilter.date}` : 'All appointment dates';
       const grandTotal = filteredBranch.reduce((acc, r) => acc + Number(r.total || 0), 0);
       const totCompleted = filteredBranch.reduce((acc, r) => acc + Number(r.completed || 0), 0);
       const totScheduled = filteredBranch.reduce((acc, r) => acc + Number(r.scheduled || 0), 0);
@@ -252,7 +289,7 @@ export default function Reports() {
           <div class="kpi-card"><div class="kpi-val">${grandTotal}</div><div class="kpi-lbl">Total Appointments</div></div>
           <div class="kpi-card kpi-success"><div class="kpi-val">${totCompleted}</div><div class="kpi-lbl">Completed (${compRate}%)</div></div>
           <div class="kpi-card kpi-primary"><div class="kpi-val">${totScheduled}</div><div class="kpi-lbl">Active Queue</div></div>
-          <div class="kpi-card kpi-danger"><div class="kpi-val">${totCancelled}</div><div class="kpi-lbl">Cancelled / No-Show</div></div>
+          <div class="kpi-card kpi-danger"><div class="kpi-val">${totCancelled}</div><div class="kpi-lbl">Cancelled</div></div>
         </div>
       `;
 
@@ -267,7 +304,7 @@ export default function Reports() {
             return `
               <div style="margin-bottom: 9px;">
                 <div style="display: flex; justify-content: space-between; font-size: 11px; margin-bottom: 3px; font-weight: 600;">
-                  <span>${b.branch_name} (${b.total} visits)</span>
+                  <span>${escapeHtml(b.branch_name)} (${escapeHtml(b.total)} visits) • ${escapeHtml(b.appointment_date)}</span>
                   <span style="color: #1c7c54;">${cPct}% Completed</span>
                 </div>
                 <div style="display: flex; height: 9px; border-radius: 4px; overflow: hidden; background: #e2e8f0;">
@@ -296,12 +333,12 @@ export default function Reports() {
           <tbody>
             ${filteredBranch.map(r => `
               <tr>
-                <td style="font-weight: 600; color: #0f2e4f;">${r.branch_name}</td>
-                <td>${r.appointment_date}</td>
-                <td class="text-center" style="color: #155a96; font-weight: 600;">${r.scheduled}</td>
-                <td class="text-center" style="color: #1c7c54; font-weight: 700;">${r.completed}</td>
-                <td class="text-center" style="color: #c2372f;">${r.cancelled}</td>
-                <td class="text-right font-bold">${r.total}</td>
+                <td style="font-weight: 600; color: #0f2e4f;">${escapeHtml(r.branch_name)}</td>
+                <td>${escapeHtml(r.appointment_date)}</td>
+                <td class="text-center" style="color: #155a96; font-weight: 600;">${escapeHtml(r.scheduled)}</td>
+                <td class="text-center" style="color: #1c7c54; font-weight: 700;">${escapeHtml(r.completed)}</td>
+                <td class="text-center" style="color: #c2372f;">${escapeHtml(r.cancelled)}</td>
+                <td class="text-right font-bold">${escapeHtml(r.total)}</td>
               </tr>
             `).join('')}
           </tbody>
@@ -318,9 +355,9 @@ export default function Reports() {
       `;
     } else if (activeReport === 'doctor_revenue') {
       title = 'PHYSICIAN CLINICAL REVENUE & PRODUCTIVITY AUDIT';
-      filterDescription = (dateFilter.from || dateFilter.to) ? `Period: ${dateFilter.from || 'Start'} to ${dateFilter.to || 'Present'}` : 'Consolidated Invoice Records';
+      filterDescription = periodDescription;
       const grandTotalBilled = filteredDoctor.reduce((acc, d) => acc + Number(d.total_revenue || 0), 0);
-      const grandCollected = filteredDoctor.reduce((acc, d) => acc + Number(d.collected || 0), 0);
+      const grandCollected = filteredDoctor.reduce((acc, d) => acc + Number(d.collected ?? NaN), 0);
       const grandVisits = filteredDoctor.reduce((acc, d) => acc + Number(d.appointment_count || 0), 0);
       const overallAvg = grandVisits > 0 ? grandTotalBilled / grandVisits : 0;
       const maxDoctorBilled = Math.max(...filteredDoctor.map(d => Number(d.total_revenue) || 0), 1);
@@ -343,7 +380,7 @@ export default function Reports() {
             return `
               <div style="margin-bottom: 8px;">
                 <div style="display: flex; justify-content: space-between; font-size: 11px; margin-bottom: 2px; font-weight: 600;">
-                  <span>#${i + 1} ${d.doctor_name} (${d.branch_name || 'All Branches'})</span>
+                  <span>#${i + 1} ${escapeHtml(d.doctor_name)} (${escapeHtml(d.branch_name || 'All Branches')})</span>
                   <span style="color: #1c7c54;">${formatLKR(d.total_revenue)} (${share}% share)</span>
                 </div>
                 <div style="height: 10px; border-radius: 4px; background: #e2e8f0; overflow: hidden;">
@@ -370,11 +407,11 @@ export default function Reports() {
           <tbody>
             ${filteredDoctor.map(d => `
               <tr>
-                <td style="font-weight: 600; color: #0f2e4f;">${d.doctor_name}</td>
-                <td>${d.branch_name || 'All Branches'}</td>
-                <td class="text-center">${d.appointment_count}</td>
+                <td style="font-weight: 600; color: #0f2e4f;">${escapeHtml(d.doctor_name)}</td>
+                <td>${escapeHtml(d.branch_name || 'All Branches')}</td>
+                <td class="text-center">${escapeHtml(d.appointment_count)}</td>
                 <td class="text-right font-bold text-success">${formatLKR(d.total_revenue)}</td>
-                <td class="text-right">${formatLKR(d.collected ?? d.total_revenue)}</td>
+                <td class="text-right">${formatLKR(d.collected)}</td>
                 <td class="text-right">${formatLKR(d.avg_revenue)}</td>
               </tr>
             `).join('')}
@@ -391,17 +428,17 @@ export default function Reports() {
         </table>
       `;
     } else if (activeReport === 'outstanding') {
-      title = 'RECEIVABLES AGING & PATIENT OUTSTANDING AUDIT';
-      filterDescription = 'Active Unsettled Invoices Requiring Collection';
+      title = 'PATIENT OUTSTANDING INVOICE BALANCES';
+      filterDescription = periodDescription;
       const grandOutstanding = filteredOutstanding.reduce((acc, p) => acc + Number(p.total_outstanding || 0), 0);
       const grandInvoices = filteredOutstanding.reduce((acc, p) => acc + Number(p.invoice_count || 0), 0);
 
       kpiHtml = `
         <div class="kpi-grid">
-          <div class="kpi-card kpi-danger"><div class="kpi-val">${formatLKR(grandOutstanding)}</div><div class="kpi-lbl">Total Receivables Overdue</div></div>
-          <div class="kpi-card"><div class="kpi-val">${filteredOutstanding.length}</div><div class="kpi-lbl">Accounts Overdue</div></div>
+          <div class="kpi-card kpi-danger"><div class="kpi-val">${formatLKR(grandOutstanding)}</div><div class="kpi-lbl">Total Outstanding</div></div>
+          <div class="kpi-card"><div class="kpi-val">${filteredOutstanding.length}</div><div class="kpi-lbl">Accounts With Balances</div></div>
           <div class="kpi-card"><div class="kpi-val">${grandInvoices}</div><div class="kpi-lbl">Unsettled Invoices</div></div>
-          <div class="kpi-card"><div class="kpi-val">${formatLKR(filteredOutstanding.length ? grandOutstanding / filteredOutstanding.length : 0)}</div><div class="kpi-lbl">Avg Overdue / Account</div></div>
+          <div class="kpi-card"><div class="kpi-val">${formatLKR(filteredOutstanding.length ? grandOutstanding / filteredOutstanding.length : 0)}</div><div class="kpi-lbl">Avg Outstanding / Account</div></div>
         </div>
       `;
 
@@ -413,7 +450,7 @@ export default function Reports() {
             return `
               <div style="margin-bottom: 7px;">
                 <div style="display: flex; justify-content: space-between; font-size: 11px; margin-bottom: 2px; font-weight: 600;">
-                  <span>${p.patient_name}</span>
+                  <span>${escapeHtml(p.patient_name)}</span>
                   <span style="color: #c2372f;">${formatLKR(p.total_outstanding)} (${share}% of debt)</span>
                 </div>
                 <div style="height: 8px; border-radius: 3px; background: #fee2e2; overflow: hidden;">
@@ -438,9 +475,9 @@ export default function Reports() {
           <tbody>
             ${filteredOutstanding.map(p => `
               <tr>
-                <td style="font-weight: 600; color: #0f2e4f;">${p.patient_name}</td>
-                <td>${p.contact_details || '—'}</td>
-                <td class="text-center"><span class="badge badge-danger">${p.invoice_count} invoice(s)</span></td>
+                <td style="font-weight: 600; color: #0f2e4f;">${escapeHtml(p.patient_name)}</td>
+                <td>${escapeHtml(p.contact_details || '—')}</td>
+                <td class="text-center"><span class="badge badge-danger">${escapeHtml(p.invoice_count)} invoice(s)</span></td>
                 <td class="text-right font-bold text-danger">${formatLKR(p.total_outstanding)}</td>
               </tr>
             `).join('')}
@@ -456,7 +493,7 @@ export default function Reports() {
       `;
     } else if (activeReport === 'treatment') {
       title = 'CLINICAL PROCEDURES VOLUME & DEPARTMENTAL REVENUE';
-      filterDescription = (dateFilter.from || dateFilter.to) ? `Period: ${dateFilter.from || 'Start'} to ${dateFilter.to || 'Present'}` : 'Consolidated Completed Visits';
+      filterDescription = (appliedFilter.from || appliedFilter.to) ? `Completed visit period: ${appliedFilter.from || 'Start'} to ${appliedFilter.to || 'Present'}` : 'All completed visit dates';
       const grandProcedures = filteredTreatment.reduce((acc, t) => acc + Number(t.count || 0), 0);
       const grandRevenue = filteredTreatment.reduce((acc, t) => acc + Number(t.total_revenue || 0), 0);
       const maxCount = Math.max(...filteredTreatment.map(t => Number(t.count) || 0), 1);
@@ -478,8 +515,8 @@ export default function Reports() {
             return `
               <div style="margin-bottom: 7px;">
                 <div style="display: flex; justify-content: space-between; font-size: 11px; margin-bottom: 2px; font-weight: 600;">
-                  <span>${t.treatment_name} <small style="color: #64748b;">(${t.category_name})</small></span>
-                  <span>${t.count} visits • ${formatLKR(t.total_revenue)}</span>
+                  <span>${escapeHtml(t.treatment_name)} <small style="color: #64748b;">(${escapeHtml(t.category_name)})</small></span>
+                  <span>${escapeHtml(t.count)} units • ${formatLKR(t.total_revenue)}</span>
                 </div>
                 <div style="height: 8px; border-radius: 3px; background: #e2e8f0; overflow: hidden;">
                   <div style="width: ${barW}%; height: 100%; background: #0f4575;"></div>
@@ -503,9 +540,9 @@ export default function Reports() {
           <tbody>
             ${filteredTreatment.map(t => `
               <tr>
-                <td><span class="badge badge-info">${t.category_name}</span></td>
-                <td style="font-weight: 600; color: #0f2e4f;">${t.treatment_name}</td>
-                <td class="text-center font-bold">${t.count}</td>
+                <td><span class="badge badge-info">${escapeHtml(t.category_name)}</span></td>
+                <td style="font-weight: 600; color: #0f2e4f;">${escapeHtml(t.treatment_name)}</td>
+                <td class="text-center font-bold">${escapeHtml(t.count)}</td>
                 <td class="text-right font-bold text-success">${formatLKR(t.total_revenue)}</td>
               </tr>
             `).join('')}
@@ -520,43 +557,28 @@ export default function Reports() {
         </table>
       `;
     } else if (activeReport === 'insurance') {
-      title = 'INSURANCE CLAIM COVERAGE VS DIRECT CASH SETTLEMENT AUDIT';
-      filterDescription = 'Institutional Financial Adjudication Analysis';
-      const ins = insuranceData || {
-        invoiced_amount: 0,
-        insurance_approved_amount: 0,
-        patient_paid_amount: 0,
-        out_of_pocket_amount: 0,
-        outstanding_amount: 0,
-      };
-      const totalSettled = Number(ins.insurance_approved_amount) + Number(ins.out_of_pocket_amount);
-      const insurancePct = totalSettled > 0 ? (Number(ins.insurance_approved_amount) / totalSettled) * 100 : 0;
-      const patientPct = totalSettled > 0 ? (Number(ins.out_of_pocket_amount) / totalSettled) * 100 : 0;
+      title = 'INSURANCE APPROVALS, PATIENT PAYMENTS & ESTIMATED EXPOSURE';
+      filterDescription = periodDescription;
+      if (!insuranceData) { setIsGeneratingPdf(false); return; }
+      const ins = insuranceData;
 
       kpiHtml = `
         <div class="kpi-grid">
           <div class="kpi-card kpi-primary"><div class="kpi-val">${formatLKR(ins.invoiced_amount)}</div><div class="kpi-lbl">Total Invoiced Amount</div></div>
-          <div class="kpi-card kpi-success"><div class="kpi-val">${formatLKR(ins.insurance_approved_amount)}</div><div class="kpi-lbl">Insurance Covered (${insurancePct.toFixed(1)}%)</div></div>
-          <div class="kpi-card"><div class="kpi-val">${formatLKR(ins.out_of_pocket_amount)}</div><div class="kpi-lbl">Patient Out-of-Pocket (${patientPct.toFixed(1)}%)</div></div>
+          <div class="kpi-card kpi-success"><div class="kpi-val">${formatLKR(ins.insurance_approved_amount)}</div><div class="kpi-lbl">Insurance Approved (not cash)</div></div>
+          <div class="kpi-card"><div class="kpi-val">${formatLKR(ins.patient_paid_amount)}</div><div class="kpi-lbl">Patient Payments (net)</div></div>
+          <div class="kpi-card"><div class="kpi-val">${formatLKR(estimatedPatientExposure)}</div><div class="kpi-lbl">Estimated Patient Exposure</div></div>
           <div class="kpi-card kpi-danger"><div class="kpi-val">${formatLKR(ins.outstanding_amount)}</div><div class="kpi-lbl">Uncollected Outstanding</div></div>
         </div>
       `;
 
       chartHtml = `
         <div class="chart-panel">
-          <div class="chart-header">Institutional Settlement Ratio Meter</div>
-          <div style="display: flex; height: 20px; border-radius: 4px; overflow: hidden; margin-bottom: 8px;">
-            <div style="width: ${insurancePct}%; background: #1d6fb8; display: flex; align-items: center; justify-content: center; color: white; font-size: 10.5px; font-weight: 700;">
-              ${insurancePct > 10 ? `Insurance: ${insurancePct.toFixed(1)}%` : ''}
-            </div>
-            <div style="width: ${patientPct}%; background: #b86e0c; display: flex; align-items: center; justify-content: center; color: white; font-size: 10.5px; font-weight: 700;">
-              ${patientPct > 10 ? `Direct Cash: ${patientPct.toFixed(1)}%` : ''}
-            </div>
-          </div>
-          <div style="display: flex; justify-content: space-between; font-size: 10.5px; font-weight: 600;">
-            <span style="color: #1d6fb8;">■ Insurer Approved: ${formatLKR(ins.insurance_approved_amount)}</span>
-            <span style="color: #b86e0c;">■ Direct Patient Settlement: ${formatLKR(ins.out_of_pocket_amount)}</span>
-          </div>
+          <div class="chart-header">Separate financial measures — not a settlement split</div>
+          <p>Claim approval is not a received payment and does not automatically reduce invoice balances.
+          Estimated patient exposure = invoiced amount minus approved claims. It is not money already collected
+          or the current outstanding balance, and does not establish who will ultimately settle the bill.
+          Net patient payments include recorded refunds and adjustments; balances reflect current ledger values.</p>
         </div>
       `;
 
@@ -568,37 +590,38 @@ export default function Reports() {
               <th>Category Details</th>
               <th class="text-center">Status</th>
               <th class="text-right">Amount (LKR)</th>
-              <th class="text-right">Share (%)</th>
             </tr>
           </thead>
           <tbody>
             <tr>
-              <td style="font-weight: 700; color: #0f2e4f;">Insurance Approved & Settled</td>
-              <td>Direct settlements disbursed by accredited insurers</td>
+              <td style="font-weight: 700; color: #0f2e4f;">Insurance Approved (not cash)</td>
+              <td>Approved claim amounts; insurer receipt is not established</td>
               <td class="text-center"><span class="badge badge-success">Approved</span></td>
               <td class="text-right font-bold text-success">${formatLKR(ins.insurance_approved_amount)}</td>
-              <td class="text-right font-bold">${insurancePct.toFixed(1)}%</td>
             </tr>
             <tr>
-              <td style="font-weight: 700; color: #0f2e4f;">Patient Direct Out-of-Pocket</td>
-              <td>Direct cash/card settlements paid at cashier terminal</td>
-              <td class="text-center"><span class="badge badge-info">Direct Cash</span></td>
-              <td class="text-right font-bold">${formatLKR(ins.out_of_pocket_amount)}</td>
-              <td class="text-right font-bold">${patientPct.toFixed(1)}%</td>
+              <td style="font-weight: 700; color: #0f2e4f;">Estimated Patient Exposure</td>
+              <td>Invoiced amount minus approved claims; not payments or current balance</td>
+              <td class="text-center"><span class="badge badge-info">Estimate</span></td>
+              <td class="text-right font-bold">${formatLKR(estimatedPatientExposure)}</td>
+            </tr>
+            <tr>
+              <td style="font-weight: 700; color: #0f2e4f;">Patient Payments (net)</td>
+              <td>Recorded payments, refunds and adjustments</td>
+              <td class="text-center"><span class="badge badge-info">Recorded</span></td>
+              <td class="text-right font-bold">${formatLKR(ins.patient_paid_amount)}</td>
             </tr>
             <tr>
               <td style="font-weight: 700; color: #0f2e4f;">Pending Invoices / Uncollected</td>
               <td>Outstanding dues pending patient or insurer settlement</td>
               <td class="text-center"><span class="badge badge-danger">Uncollected</span></td>
               <td class="text-right font-bold text-danger">${formatLKR(ins.outstanding_amount)}</td>
-              <td class="text-right font-bold">—</td>
             </tr>
           </tbody>
           <tfoot>
             <tr class="totals-row">
               <td colspan="3">Total Invoiced Portfolio</td>
               <td class="text-right font-bold text-primary">${formatLKR(ins.invoiced_amount)}</td>
-              <td class="text-right font-bold">100.0%</td>
             </tr>
           </tfoot>
         </table>
@@ -657,7 +680,7 @@ export default function Reports() {
           </div>
           <div class="header-meta">
             <div><strong>Ref ID:</strong> ${reportRefId}</div>
-            <div><strong>Executive:</strong> ${officerName} (${roleTitle})</div>
+            <div><strong>Executive:</strong> ${escapeHtml(officerName)} (${escapeHtml(roleTitle)})</div>
             <div><strong>Generated:</strong> ${dateStamp}</div>
             <div><strong>Status:</strong> Official Confidential Record</div>
           </div>
@@ -665,7 +688,7 @@ export default function Reports() {
 
         <div class="report-bar">
           <h2>${title}</h2>
-          <span>${filterDescription}</span>
+          <span>${escapeHtml(filterDescription)}${searchTerm ? ` • Record filter: ${escapeHtml(searchTerm)}` : ''}</span>
         </div>
 
         ${kpiHtml}
@@ -686,18 +709,33 @@ export default function Reports() {
       </html>
     `;
 
-    const printWin = window.open('', '_blank', 'width=1100,height=850');
+    let printWin: Window | null;
+    try { printWin = window.open('', '_blank', 'width=1100,height=850'); }
+    catch {
+      setPrintError('Could not open the print window. Choose Print / Save as PDF again.');
+      setIsGeneratingPdf(false);
+      return;
+    }
     if (printWin) {
+      try {
       printWin.document.open();
       printWin.document.write(printableDocument);
       printWin.document.close();
       printWin.focus();
       setTimeout(() => {
-        printWin.print();
-        setIsGeneratingPdf(false);
+        try {
+          if (printWin.closed) throw new Error('Print window closed.');
+          printWin.print();
+        } catch {
+          setPrintError('Could not open the print dialog. Choose Print / Save as PDF again.');
+        } finally { setIsGeneratingPdf(false); }
       }, 350);
+      } catch {
+        setPrintError('Could not prepare the print window. Choose Print / Save as PDF again.');
+        setIsGeneratingPdf(false);
+      }
     } else {
-      alert('Pop-up was blocked. Please permit pop-ups to export the PDF.');
+      setPrintError('The print window was blocked. Allow pop-ups for this site, then choose Print / Save as PDF again.');
       setIsGeneratingPdf(false);
     }
   };
@@ -765,7 +803,7 @@ export default function Reports() {
           </div>
           <button
             onClick={downloadReportAsPDF}
-            disabled={isGeneratingPdf || isLoading}
+            disabled={isGeneratingPdf || !canPrint}
             style={{
               background: '#ffffff',
               color: '#0b2e4f',
@@ -783,7 +821,7 @@ export default function Reports() {
             }}
           >
             <Download size={15} />
-            {isGeneratingPdf ? 'Compiling PDF...' : 'Download Official PDF'}
+            {isGeneratingPdf ? 'Opening print dialog...' : 'Print / Save as PDF'}
           </button>
         </div>
       </div>
@@ -894,7 +932,8 @@ export default function Reports() {
             </div>
           </div>
 
-          {error && <div className="alert alert-error" style={{ marginBottom: 16 }}>{error}</div>}
+          {error && <div className="alert alert-error" role="alert" style={{ marginBottom: 16 }}>{error}</div>}
+          {printError && <div className="alert alert-error" role="alert" style={{ marginBottom: 16 }}>{printError}</div>}
 
           {isLoading ? (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -902,7 +941,7 @@ export default function Reports() {
                 <div key={i} className="skeleton" style={{ height: 68, borderRadius: 'var(--radius)' }} />
               ))}
             </div>
-          ) : !error && (
+          ) : !error && loadedReport?.type === activeReport && (
             <>
               {/* ───────────────────────────────────────────────────────────
                   1. BRANCH APPOINTMENT SUMMARY
@@ -954,7 +993,7 @@ export default function Reports() {
                       </div>
                     </div>
                     <div style={{ background: '#ffffff', padding: '16px 20px' }}>
-                      <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--danger)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Cancelled / No-Show</div>
+                      <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--danger)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Cancelled</div>
                       <div style={{ fontSize: 24, fontWeight: 800, color: 'var(--danger)', marginTop: 2 }}>
                         {filteredBranch.reduce((acc, r) => acc + Number(r.cancelled || 0), 0)}
                       </div>
@@ -981,13 +1020,13 @@ export default function Reports() {
                       </div>
 
                       <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                        {filteredBranch.map((b, idx) => {
+                        {filteredBranch.map(b => {
                           const tot = Number(b.total) || 1;
                           const cPct = (Number(b.completed) / tot) * 100;
                           const sPct = (Number(b.scheduled) / tot) * 100;
                           const xPct = (Number(b.cancelled) / tot) * 100;
                           return (
-                            <div key={idx} style={{ background: 'var(--off-white)', padding: '12px 16px', borderRadius: 'var(--radius)', border: '1px solid var(--gray-200)' }}>
+                            <div key={`${b.appointment_date}-${b.branch_id}`} style={{ background: 'var(--off-white)', padding: '12px 16px', borderRadius: 'var(--radius)', border: '1px solid var(--gray-200)' }}>
                               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, fontSize: 13 }}>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                                   <Building2 size={16} style={{ color: 'var(--primary)' }} />
@@ -1036,8 +1075,8 @@ export default function Reports() {
                           </tr>
                         </thead>
                         <tbody>
-                          {filteredBranch.map((row, idx) => (
-                            <tr key={idx}>
+                          {filteredBranch.map(row => (
+                            <tr key={`${row.appointment_date}-${row.branch_id}`}>
                               <td style={{ fontWeight: 600, color: 'var(--gray-900)', padding: '14px 20px' }}>
                                 {row.branch_name}
                               </td>
@@ -1107,7 +1146,7 @@ export default function Reports() {
                     <div style={{ background: '#ffffff', padding: '12px 16px', borderRadius: 'var(--radius)', border: '1px solid var(--gray-200)', borderLeft: '4px solid var(--success)' }}>
                       <div style={{ fontSize: 11, color: 'var(--success)', textTransform: 'uppercase', fontWeight: 700 }}>Collected Cash</div>
                       <div style={{ fontSize: 20, fontWeight: 800, color: 'var(--success)', marginTop: 2 }}>
-                        {formatLKR(filteredDoctor.reduce((acc, d) => acc + Number(d.collected || 0), 0))}
+                        {formatLKR(filteredDoctor.reduce((acc, d) => acc + Number(d.collected ?? NaN), 0))}
                       </div>
                     </div>
                     <div style={{ background: '#ffffff', padding: '12px 16px', borderRadius: 'var(--radius)', border: '1px solid var(--gray-200)' }}>
@@ -1178,7 +1217,7 @@ export default function Reports() {
                               <td style={{ color: 'var(--gray-600)' }}>{d.branch_name || 'All Branches'}</td>
                               <td style={{ textAlign: 'center' }}>{d.appointment_count}</td>
                               <td style={{ textAlign: 'right', fontWeight: 700, color: 'var(--success)' }}>{formatLKR(d.total_revenue)}</td>
-                              <td style={{ textAlign: 'right', fontWeight: 500 }}>{formatLKR(d.collected ?? d.total_revenue)}</td>
+                              <td style={{ textAlign: 'right', fontWeight: 500 }}>{formatLKR(d.collected)}</td>
                               <td style={{ textAlign: 'right', color: 'var(--gray-600)' }}>{formatLKR(d.avg_revenue)}</td>
                             </tr>
                           ))}
@@ -1196,15 +1235,15 @@ export default function Reports() {
                 <div className="card">
                   <div className="card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--gray-200)', padding: '16px 20px' }}>
                     <div>
-                      <h3 className="card-title" style={{ fontSize: 16, color: 'var(--gray-900)' }}>Receivables Aging & Overdue Balances</h3>
-                      <p style={{ fontSize: 12, color: 'var(--gray-500)', marginTop: 2 }}>Aging overview of unsettled patient accounts requiring cashier or administrative recovery</p>
+                      <h3 className="card-title" style={{ fontSize: 16, color: 'var(--gray-900)' }}>Outstanding Invoice Balances</h3>
+                      <p style={{ fontSize: 12, color: 'var(--gray-500)', marginTop: 2 }}>Current balances on invoices issued within the selected period; not a due-date aging report</p>
                     </div>
-                    <span className="badge badge-danger">{filteredOutstanding.length} overdue debtors</span>
+                    <span className="badge badge-danger">{filteredOutstanding.length} accounts with balances</span>
                   </div>
 
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 14, padding: '18px 20px', background: 'var(--off-white)', borderBottom: '1px solid var(--gray-200)' }}>
                     <div style={{ background: '#ffffff', padding: '12px 16px', borderRadius: 'var(--radius)', border: '1px solid var(--gray-200)', borderLeft: '4px solid var(--danger)' }}>
-                      <div style={{ fontSize: 11, color: 'var(--danger)', textTransform: 'uppercase', fontWeight: 700 }}>Total Receivables Overdue</div>
+                      <div style={{ fontSize: 11, color: 'var(--danger)', textTransform: 'uppercase', fontWeight: 700 }}>Total Outstanding</div>
                       <div style={{ fontSize: 20, fontWeight: 800, color: 'var(--danger)', marginTop: 2 }}>
                         {formatLKR(filteredOutstanding.reduce((acc, p) => acc + Number(p.total_outstanding || 0), 0))}
                       </div>
@@ -1253,8 +1292,8 @@ export default function Reports() {
                   {filteredOutstanding.length === 0 ? (
                     <div className="empty-state" style={{ padding: 40, textAlign: 'center' }}>
                       <CheckCircle2 size={36} style={{ color: 'var(--success)', marginBottom: 8 }} />
-                      <p className="empty-state-title" style={{ color: 'var(--success)' }}>All Patient Accounts Cleared</p>
-                      <p className="empty-state-desc">Zero outstanding balances detected. Every patient bill is settled.</p>
+                      <p className="empty-state-title" style={{ color: 'var(--success)' }}>No matching outstanding balances</p>
+                      <p className="empty-state-desc">No balances match the loaded invoice period and current record filter. This does not establish that every patient bill is settled.</p>
                     </div>
                   ) : (
                     <div className="table-container">
@@ -1404,7 +1443,7 @@ export default function Reports() {
                           { label: 'Total Billed', value: `Rs. ${Number(insuranceData.invoiced_amount).toLocaleString()}`, color: '#3f89cc' },
                           { label: 'Insurance Approved (not cash)', value: `Rs. ${Number(insuranceData.insurance_approved_amount).toLocaleString()}`, color: '#1d6fb8' },
                           { label: 'Patient Payments (net)', value: `Rs. ${Number(insuranceData.patient_paid_amount).toLocaleString()}`, color: '#155a96' },
-                          { label: 'Out-of-Pocket Recorded', value: `Rs. ${Number(insuranceData.out_of_pocket_amount).toLocaleString()}`, color: '#b86e0c' },
+                          { label: 'Estimated Patient Exposure', value: formatLKR(estimatedPatientExposure), color: '#b86e0c' },
                           { label: 'Outstanding Balance', value: `Rs. ${Number(insuranceData.outstanding_amount).toLocaleString()}`, color: '#c2372f' },
                         ].map(s => (
                           <div key={s.label} className="stat-card" style={{ borderTop: `3px solid ${s.color}` }}>
@@ -1416,24 +1455,30 @@ export default function Reports() {
 
                       <div className="card" style={{ marginBottom: 20 }}>
                         <div className="card-header" style={{ padding: '16px 20px', borderBottom: '1px solid var(--gray-200)' }}>
-                          <h3 className="card-title" style={{ fontSize: 15, color: 'var(--gray-900)' }}>Claim Settlement & Payment Method Ratio</h3>
+                          <h3 className="card-title" style={{ fontSize: 15, color: 'var(--gray-900)' }}>Billed Value: Approved Claims & Estimated Patient Exposure</h3>
                         </div>
                         <div className="card-body" style={{ padding: '20px' }}>
                           {(() => {
-                            const totalSettled = Number(insuranceData.insurance_approved_amount) + Number(insuranceData.out_of_pocket_amount);
-                            const insurancePct = totalSettled > 0 ? (Number(insuranceData.insurance_approved_amount) / totalSettled) * 100 : 0;
-                            const patientPct = 100 - insurancePct;
+                            const billed = Number(insuranceData.invoiced_amount);
+                            const approved = Number(insuranceData.insurance_approved_amount);
+                            const exposure = estimatedPatientExposure!;
+                            // A billed-value partition, never a claim-settlement or payment-method ratio.
+                            if (![billed, approved, exposure].every(Number.isFinite) || billed <= 0 || approved < 0 || approved > billed) {
+                              return <p style={{ color: 'var(--gray-600)', margin: 0 }}>No reconciled billed-value breakdown is available. The separate amounts above are not a settlement ratio.</p>;
+                            }
+                            const insurancePct = (approved / billed) * 100;
+                            const patientPct = (exposure / billed) * 100;
 
                             return (
                               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 24, alignItems: 'center' }}>
                                 <div>
                                   {renderSvgDonut(
                                     [
-                                      { label: 'Insurance Covered', value: Number(insuranceData.insurance_approved_amount), color: '#1d6fb8' },
-                                      { label: 'Direct Patient Cash', value: Number(insuranceData.out_of_pocket_amount), color: '#b86e0c' },
+                                      { label: 'Approved Claims (not cash)', value: approved, color: '#1d6fb8' },
+                                      { label: 'Estimated Patient Exposure', value: exposure, color: '#b86e0c' },
                                     ],
-                                    'Settled',
-                                    '100%'
+                                    'Billed Value',
+                                    formatLKR(billed)
                                   )}
                                 </div>
 
@@ -1443,15 +1488,15 @@ export default function Reports() {
                                     <div style={{ fontSize: 16, fontWeight: 800, color: '#0f2e4f', marginTop: 2 }}>
                                       {insurancePct.toFixed(1)}% ({formatLKR(insuranceData.insurance_approved_amount)})
                                     </div>
-                                    <div style={{ fontSize: 11, color: 'var(--gray-500)', marginTop: 2 }}>Settled directly through accredited insurance partners</div>
+                                    <div style={{ fontSize: 11, color: 'var(--gray-500)', marginTop: 2 }}>Approved claim value; insurer payment is not established</div>
                                   </div>
 
                                   <div style={{ background: '#fdf6ea', padding: '12px 16px', borderRadius: 'var(--radius)', borderLeft: '4px solid #b86e0c' }}>
-                                    <div style={{ fontSize: 11, color: '#b86e0c', fontWeight: 700, textTransform: 'uppercase' }}>Direct Patient Cash Share</div>
+                                    <div style={{ fontSize: 11, color: '#b86e0c', fontWeight: 700, textTransform: 'uppercase' }}>Estimated Patient Exposure Share</div>
                                     <div style={{ fontSize: 16, fontWeight: 800, color: '#78350f', marginTop: 2 }}>
-                                      {patientPct.toFixed(1)}% ({formatLKR(insuranceData.out_of_pocket_amount)})
+                                      {patientPct.toFixed(1)}% ({formatLKR(exposure)})
                                     </div>
-                                    <div style={{ fontSize: 11, color: 'var(--gray-500)', marginTop: 2 }}>Collected over-the-counter via cash or card payments</div>
+                                    <div style={{ fontSize: 11, color: 'var(--gray-500)', marginTop: 2 }}>Invoiced amount minus approved claims; not payments or current balance</div>
                                   </div>
                                 </div>
                               </div>
@@ -1462,6 +1507,8 @@ export default function Reports() {
 
                       <div className="alert alert-info">
                         Insurance approval is not a received payment and does not automatically reduce an invoice balance.
+                        Estimated patient exposure = invoiced amount minus approved claims. It is not recorded payments
+                        or the current outstanding balance, and does not establish who will ultimately settle the bill.
                         Patient payments include recorded refunds and adjustments. Approved claims and patient payments
                         are separate measures, not percentages of a single cash total.
                       </div>

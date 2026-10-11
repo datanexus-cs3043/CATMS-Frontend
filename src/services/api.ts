@@ -142,6 +142,7 @@ export interface InsurancePolicy {
   status: string;
   provider_name?: string;
   patient_name?: string;
+  coverages?: InsuranceCoverage[];
 }
 
 export interface InsuranceCoverage {
