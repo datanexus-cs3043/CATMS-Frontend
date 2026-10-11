@@ -7,11 +7,13 @@ import {
 import { useAuth } from '../auth/AuthContext';
 import { localDate } from '../utils/date';
 import { invoiceStatusBadge } from './Invoices';
+import { useDialog } from '../components/DialogProvider';
 
 const money = (n?: number) => `Rs. ${Number(n ?? 0).toLocaleString()}`;
 const th: React.CSSProperties = { padding: '10px 14px', fontSize: 12, fontWeight: 600, color: 'var(--gray-500)', textTransform: 'uppercase' };
 
 export default function InvoiceDetails() {
+  const { requestInput } = useDialog();
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { isAdmin, isCashier, isPatient } = useAuth();
@@ -100,10 +102,12 @@ export default function InvoiceDetails() {
   const settleClaim = async (claim: InsuranceClaim, status: 'Approved' | 'Rejected') => {
     let approved: number | undefined;
     if (status === 'Approved') {
-      const input = prompt(`Approved amount for CLM-${claim.claim_id} (max ${money(claim.claim_amount)}):`, String(claim.claim_amount));
+      const input = await requestInput(`Approved amount for CLM-${claim.claim_id} (max ${money(claim.claim_amount)}):`, String(claim.claim_amount), {
+        title: 'Approve insurance claim', inputLabel: 'Approved amount (Rs.)', confirmLabel: 'Approve claim',
+        validate: value => value.trim() && Number.isFinite(Number(value)) && Number(value) >= 0 && Number(value) <= Number(claim.claim_amount) ? null : 'Enter an amount between zero and the claimed amount.',
+      });
       if (input === null) return;
       approved = Number(input);
-      if (!(approved >= 0)) { flash('error', 'Enter a valid amount.'); return; }
     }
     try {
       await insuranceService.updateClaim(claim.claim_id, { status, approved_amount: approved });

@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useDialog } from '../components/DialogProvider';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
   patientService, appointmentService, insuranceService,
@@ -9,6 +10,7 @@ import { useAuth } from '../auth/AuthContext';
 
 
 export default function PatientDetails() {
+  const { showMessage } = useDialog();
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { isAdmin, isManager, isCashier, isDoctor } = useAuth();
@@ -257,7 +259,7 @@ export default function PatientDetails() {
                   await patientService.addEmergencyContact(Number(id), contactForm);
                   setContactForm({ contact_name: '', relationship: '', phone: '' });
                   setEmergencyContacts(await patientService.getEmergencyContacts(Number(id)));
-                } catch (err) { alert(apiErrorMessage(err)); }
+                } catch (err) { await showMessage(apiErrorMessage(err), { title: 'Could not add emergency contact' }); }
               }}
             >
               <div className="form-group" style={{ flex: '1 1 160px', marginBottom: 0 }}>

@@ -5,6 +5,7 @@ import { ProtectedRoute } from './auth/ProtectedRoute';
 import { Login } from './auth/Login';
 import { Sidebar } from './components/Sidebar';
 import { Navbar } from './components/Navbar';
+import { DialogProvider } from './components/DialogProvider';
 
 // Page Imports
 import Dashboard from './pages/Dashboard';
@@ -56,6 +57,7 @@ export default function App() {
   return (
     <AuthProvider>
       <BrowserRouter>
+        <DialogProvider>
         <Routes>
           {/* Public Landing & Login Routes */}
           <Route path="/" element={<LandingPage />} />
@@ -223,6 +225,7 @@ export default function App() {
           {/* Catch-all fallback */}
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
+        </DialogProvider>
       </BrowserRouter>
     </AuthProvider>
   );

@@ -627,7 +627,10 @@ export const appointmentService = {
   getById: (id: number) => get<Appointment>(`/appointments/${id}`),
   create: (data: Partial<Appointment>) => post<Appointment>('/appointments', data),
   update: (id: number, data: Partial<Appointment>) => put<Appointment>(`/appointments/${id}`, data),
-  cancel: (id: number) => put(`/appointments/${id}/cancel`),
+  cancel: async (id: number): Promise<Appointment> => {
+    const res = await api.put<Appointment>(`/appointments/${id}/cancel`, undefined, { timeout: 15000 });
+    return res.data;
+  },
   reschedule: (id: number, data: { appointment_date: string; start_time: string; end_time: string }) =>
     post<Appointment>(`/appointments/${id}/reschedule`, data),
   getNotes: (id: number) => get<ConsultationNote[]>(`/appointments/${id}/notes`),

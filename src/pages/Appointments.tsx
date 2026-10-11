@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   appointmentService, patientService, doctorService, branchService, treatmentService,
@@ -6,6 +6,8 @@ import {
 } from '../services/api';
 import { useAuth } from '../auth/AuthContext';
 import { localDate } from '../utils/date';
+import { useDialog } from '../components/DialogProvider';
+import { appointmentActionError } from '../utils/appointmentActionError';
 
 const typeBadge = (type: string) => {
   if (type === 'Emergency' || type === 'Walk-in') return <span className="badge badge-warning">{type}</span>;
@@ -36,6 +38,7 @@ const emptyForm = (walkIn: boolean, patientId?: number, doctorId?: number, branc
 export default function Appointments() {
   const navigate = useNavigate();
   const { user } = useAuth();
+  const { confirmAction } = useDialog();
   const [searchParams, setSearchParams] = useSearchParams();
 
   const [appointments, setAppointments] = useState<Appointment[]>([]);
@@ -56,6 +59,9 @@ export default function Appointments() {
   const [error, setError] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
   const [listError, setListError] = useState('');
+  const [actionError, setActionError] = useState('');
+  const [cancellingId, setCancellingId] = useState<number | null>(null);
+  const cancelPending = useRef(false);
 
   useEffect(() => {
     loadData();
@@ -70,6 +76,7 @@ export default function Appointments() {
 
   const loadData = async () => {
     setIsLoading(true);
+    setListError('');
     try {
       const [appts, pts, docs, brs, txs] = await Promise.all([
         appointmentService.getAll(),
@@ -125,14 +132,24 @@ export default function Appointments() {
   };
 
   const handleCancel = async (appt: Appointment) => {
-    if (!confirm(`Cancel appointment #${appt.appointment_id} for ${appt.patient_name}?`)) return;
+    if (cancelPending.current) return;
+    cancelPending.current = true;
     try {
-      await appointmentService.cancel(appt.appointment_id);
+      if (!await confirmAction(`Cancel appointment #${appt.appointment_id} for ${appt.patient_name || `patient #${appt.patient_id}`}?`, {
+        title: 'Cancel appointment', confirmLabel: 'Cancel appointment', danger: true,
+      })) return;
+      setCancellingId(appt.appointment_id);
+      setActionError('');
+      setSuccessMsg('');
+      const cancelled = await appointmentService.cancel(appt.appointment_id);
+      setAppointments(current => current.map(item => item.appointment_id === cancelled.appointment_id ? { ...item, status: cancelled.status } : item));
       setSuccessMsg(`Appointment #${appt.appointment_id} was cancelled.`);
-      setTimeout(() => setSuccessMsg(''), 4000);
-      loadData();
+      await loadData();
     } catch (err) {
-      alert(apiErrorMessage(err, 'Cancellation failed.'));
+      setActionError(appointmentActionError(err));
+    } finally {
+      cancelPending.current = false;
+      setCancellingId(null);
     }
   };
 
@@ -142,8 +159,9 @@ export default function Appointments() {
 
   return (
     <div className="animate-[fade-in_0.3s_ease]">
-      {successMsg && <div className="alert alert-success">{successMsg}</div>}
-      {listError && <div className="alert alert-error">{listError}</div>}
+      {successMsg && <div className="alert alert-success" role="status">{successMsg}</div>}
+      {actionError && <div className="alert alert-error" role="alert">{actionError}</div>}
+      {listError && <div className="alert alert-error" role="alert">{listError}</div>}
 
       <div className="flex gap-3 mb-5 flex-wrap">
         {[
@@ -243,7 +261,9 @@ export default function Appointments() {
                       <div className="flex gap-1.5">
                         <button className="btn btn-secondary btn-sm" onClick={() => navigate(`/appointments/${appt.appointment_id}`)}>View</button>
                         {appt.status === 'Scheduled' && (
-                          <button className="btn btn-ghost btn-sm" onClick={() => handleCancel(appt)}>Cancel</button>
+                          <button className="btn btn-ghost btn-sm" disabled={cancellingId !== null} onClick={() => handleCancel(appt)}>
+                            {cancellingId === appt.appointment_id ? 'Cancelling…' : 'Cancel'}
+                          </button>
                         )}
                       </div>
                     </td>

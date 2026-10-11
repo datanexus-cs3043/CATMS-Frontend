@@ -5,9 +5,11 @@ import {
   InsuranceClaim, InsurancePolicy, InsuranceProvider, InsuranceCoverage, Patient, Treatment
 } from '../services/api';
 import { useAuth } from '../auth/AuthContext';
+import { useDialog } from '../components/DialogProvider';
 
 export default function Insurance() {
   const { isAdmin, isCashier } = useAuth();
+  const { confirmAction, requestInput, showMessage } = useDialog();
   const canEdit = isAdmin || isCashier;
   const navigate = useNavigate();
   const [treatments, setTreatments] = useState<Treatment[]>([]);
@@ -83,11 +85,13 @@ export default function Insurance() {
   const handleUpdateClaimStatus = async (claim: InsuranceClaim, newStatus: string) => {
     let approved: number | undefined;
     if (newStatus === 'Approved') {
-      const input = prompt(`Approved amount for CLM-${claim.claim_id} (claimed Rs. ${Number(claim.claim_amount).toLocaleString()}):`, String(claim.claim_amount));
+      const input = await requestInput(`Approved amount for CLM-${claim.claim_id} (claimed Rs. ${Number(claim.claim_amount).toLocaleString()}):`, String(claim.claim_amount), {
+        title: 'Approve insurance claim', inputLabel: 'Approved amount (Rs.)', confirmLabel: 'Approve claim',
+        validate: value => value.trim() && Number.isFinite(Number(value)) && Number(value) >= 0 && Number(value) <= Number(claim.claim_amount) ? null : 'Enter an amount between zero and the claimed amount.',
+      });
       if (input === null) return;
       approved = Number(input);
-      if (!(approved >= 0)) { alert('Enter a valid amount.'); return; }
-    } else if (!confirm(`Reject claim CLM-${claim.claim_id}?`)) {
+    } else if (!await confirmAction(`Reject claim CLM-${claim.claim_id}?`, { title: 'Reject insurance claim', confirmLabel: 'Reject claim', danger: true })) {
       return;
     }
     try {
@@ -95,7 +99,7 @@ export default function Insurance() {
       setMessage(`Claim CLM-${claim.claim_id} ${newStatus.toLowerCase()}. The invoice balance has been updated.`);
       loadData();
     } catch (err) {
-      alert(apiErrorMessage(err));
+      await showMessage(apiErrorMessage(err), { title: 'Could not update claim' });
     }
   };
 
