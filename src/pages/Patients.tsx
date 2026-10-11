@@ -25,11 +25,12 @@ export default function Patients() {
   const [filterBranch, setFilterBranch] = useState('');
   const [filterGender, setFilterGender] = useState('');
   const [showModal, setShowModal] = useState(false);
-  const defaultBranchId = user?.branch_id || 1;
+  const defaultBranchId = user?.branch_id || 0;
   const blankForm = {
     first_name: '', last_name: '', date_of_birth: '', gender: 'Male',
     patient_type: 'Regular', contact_details: '', email: '', address: '',
     branch_id: defaultBranchId, emergency_contact_name: '', emergency_contact_relationship: '', emergency_contact_phone: '',
+    create_portal: false, portal_username: '',
   };
   const [form, setForm] = useState(blankForm);
   const [submitting, setSubmitting] = useState(false);
@@ -37,6 +38,7 @@ export default function Patients() {
   const [error, setError] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
   const [loadError, setLoadError] = useState('');
+  const loadVersion = useRef(0);
 
   useEffect(() => {
     loadData();
@@ -44,16 +46,18 @@ export default function Patients() {
       openModal();
       setSearchParams({}, { replace: true });
     }
+    return () => { loadVersion.current++; };
   }, []);
 
   const openModal = () => {
-    const branchId = (isManager && user?.branch_id) ? user.branch_id : (branches[0]?.branch_id || user?.branch_id || 1);
+    const branchId = user?.branch_id || branches[0]?.branch_id || 0;
     setForm({ ...blankForm, branch_id: branchId });
     setError('');
     setShowModal(true);
   };
 
   const loadData = async () => {
+    const version = ++loadVersion.current;
     setIsLoading(true);
     setLoadError('');
     try {
@@ -61,12 +65,14 @@ export default function Patients() {
         patientService.getAll(),
         branchService.getAll(),
       ]);
+      if (version !== loadVersion.current) return;
       setPatients(pts);
       setBranches(brs);
+      setForm(current => current.branch_id ? current : { ...current, branch_id: user?.branch_id || brs[0]?.branch_id || 0 });
     } catch (err) {
-      setLoadError(apiErrorMessage(err, 'Could not load patients. Please retry.'));
+      if (version === loadVersion.current) setLoadError(apiErrorMessage(err, 'Could not load patients. Please retry.'));
     } finally {
-      setIsLoading(false);
+      if (version === loadVersion.current) setIsLoading(false);
     }
   };
 
@@ -81,6 +87,14 @@ export default function Patients() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (submittingRef.current) return;
+    if (!form.branch_id || !form.first_name.trim() || !form.last_name.trim()) {
+      setError('Enter the patient name and select an available branch.');
+      return;
+    }
+    if (form.create_portal && (form.portal_username.trim().length < 3 || !form.email.trim())) {
+      setError('Portal access requires a unique username of at least three characters and an account email.');
+      return;
+    }
     const contact = { contact_name: form.emergency_contact_name.trim(), relationship: form.emergency_contact_relationship.trim(), phone: form.emergency_contact_phone.trim() };
     if (Object.values(contact).some(Boolean) && !Object.values(contact).every(Boolean)) {
       setError('Enter all three emergency-contact fields, or leave all of them blank.');
@@ -90,12 +104,11 @@ export default function Patients() {
     setSubmitting(true);
     setError('');
     try {
-      const { emergency_contact_name, emergency_contact_relationship, emergency_contact_phone, ...patientFields } = form;
-      const created = await patientService.create({ ...patientFields, ...(contact.contact_name ? { emergency_contact: contact } : {}) });
-      setSuccessMsg(`${created.first_name} ${created.last_name} registered (Patient #${created.patient_id}). This creates a patient record, not a portal sign-in account.`);
+      const { emergency_contact_name, emergency_contact_relationship, emergency_contact_phone, create_portal, portal_username, ...patientFields } = form;
+      const created = await patientService.create({ ...patientFields, ...(create_portal ? { portal_username: portal_username.trim() } : {}), ...(contact.contact_name ? { emergency_contact: contact } : {}) });
+      setSuccessMsg(`${created.first_name} ${created.last_name} registered (Patient #${created.patient_id}). ${created.portal_username ? `Portal username: ${created.portal_username}. Initial password: password123. Ask the patient to change it after signing in.` : 'No portal account was requested.'}`);
       setShowModal(false);
       loadData();
-      setTimeout(() => setSuccessMsg(''), 10000);
     } catch (err) {
       setError(apiErrorMessage(err, 'Failed to register patient'));
     } finally {
@@ -128,7 +141,7 @@ export default function Patients() {
             Patient Records
           </h2>
           <p style={{ fontSize: 13, color: 'var(--gray-500)', marginTop: 2 }}>
-            {filtered.length} of {patients.length} patients
+            {isLoading ? 'Loading patients...' : loadError ? 'Patient count unavailable' : `${filtered.length} of ${patients.length} patients`}
           </p>
         </div>
         <div className="page-actions">
@@ -315,7 +328,7 @@ export default function Patients() {
                 <div className="form-row">
                   <div className="form-group">
                     <label className="form-label">Email</label>
-                    <input className="form-control" type="email" value={form.email || ''} onChange={e => setForm({...form, email: e.target.value})} placeholder="patient@email.com" />
+                    <input className="form-control" type="email" required={form.create_portal} maxLength={255} value={form.email || ''} onChange={e => setForm({...form, email: e.target.value})} placeholder="patient@email.com" />
                   </div>
                   <div className="form-group">
                     <label className="form-label">Contact</label>
@@ -325,7 +338,8 @@ export default function Patients() {
                 <div className="form-row">
                   <div className="form-group">
                     <label className="form-label">Branch *</label>
-                    <select className="form-control" disabled={isManager} value={form.branch_id || defaultBranchId} onChange={e => setForm({...form, branch_id: Number(e.target.value)})}>
+                    <select className="form-control" required disabled={!isAdmin} value={form.branch_id} onChange={e => setForm({...form, branch_id: Number(e.target.value)})}>
+                      <option value={0}>Select a branch</option>
                       {branches.map(b => <option key={b.branch_id} value={b.branch_id}>{b.branch_name}</option>)}
                     </select>
                   </div>
@@ -342,6 +356,17 @@ export default function Patients() {
                 <div className="form-group">
                   <label className="form-label">Address</label>
                   <input className="form-control" value={form.address || ''} onChange={e => setForm({...form, address: e.target.value})} placeholder="Full address..." />
+                </div>
+                <div className="form-group">
+                  <label className="form-label" style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                    <input type="checkbox" checked={form.create_portal} onChange={e => setForm({ ...form, create_portal: e.target.checked })} />
+                    Create patient portal access (optional)
+                  </label>
+                  {form.create_portal && <>
+                    <label className="form-label" htmlFor="patient-portal-username">Portal username *</label>
+                    <input id="patient-portal-username" className="form-control" required minLength={3} maxLength={100} autoCapitalize="none" spellCheck={false} value={form.portal_username} onChange={e => setForm({ ...form, portal_username: e.target.value })} />
+                    <p style={{ fontSize: 12, color: 'var(--gray-500)', marginTop: 6 }}>Use a unique username and account email. The initial password is password123; ask the patient to change it after sign-in. Scheduling remains staff-managed.</p>
+                  </>}
                 </div>
                 <p style={{ fontSize: 12, fontWeight: 700, color: 'var(--gray-500)', textTransform: 'uppercase', letterSpacing: '0.05em', margin: '8px 0' }}>Emergency Contact</p>
                 <div className="form-row">
@@ -361,7 +386,7 @@ export default function Patients() {
               </div>
               <div className="modal-footer">
                 <button type="button" className="btn btn-ghost" onClick={() => setShowModal(false)}>Cancel</button>
-                <button type="submit" className="btn btn-primary" disabled={submitting}>
+                <button type="submit" className="btn btn-primary" disabled={submitting || isLoading || !!loadError}>
                   {submitting ? <><span className="spinner" style={{ width: 14, height: 14, borderWidth: 2 }} /> Registering...</> : 'Register Patient'}
                 </button>
               </div>
