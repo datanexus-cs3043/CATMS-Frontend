@@ -49,6 +49,7 @@ export const Navbar: React.FC<{ onMenu?: () => void }> = ({ onMenu }) => {
   const fullName = [user?.first_name, user?.last_name].filter(Boolean).join(' ') || user?.username || 'User';
   const initials = fullName.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2);
   const personal = user?.role === 'doctor' || user?.role === 'patient';
+  const canViewProfile = personal || user?.role === 'receptionist_cashier';
   const go = (path: string) => { setOpen(false); navigate(path); };
 
 
@@ -86,7 +87,7 @@ export const Navbar: React.FC<{ onMenu?: () => void }> = ({ onMenu }) => {
             <div style={{ padding: 6 }}>
               <button className="dropdown-item" onClick={() => go('/dashboard')}>Dashboard</button>
               <button className="dropdown-item" onClick={() => go('/')}>Public Homepage</button>
-              {personal && <button className="dropdown-item" onClick={() => go('/my-profile')}>My profile</button>}
+              {canViewProfile && <button className="dropdown-item" onClick={() => go('/my-profile')}>My profile</button>}
               {personal && <button className="dropdown-item" onClick={() => go('/my-appointments')}>My appointments</button>}
               {user?.role === 'patient' && <button className="dropdown-item" onClick={() => go('/my-bills')}>My bills</button>}
               <div style={{ height: 1, background: 'var(--gray-100)', margin: '6px 0' }} />
