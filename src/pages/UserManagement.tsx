@@ -10,6 +10,7 @@ export default function UserManagement() {
   const [error, setError] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
   const [selectedUser, setSelectedUser] = useState<User | null>(null);
+  const [search, setSearch] = useState('');
 
   const loadUsers = async () => {
     setIsLoading(true);
@@ -24,6 +25,14 @@ export default function UserManagement() {
   };
 
   useEffect(() => { loadUsers(); }, []);
+
+  const normalizedSearch = search.trim().toLowerCase();
+  const filteredUsers = users.filter(user => {
+    if (!normalizedSearch) return true;
+    const name = `${user.first_name || ''} ${user.last_name || ''}`.trim();
+    return [name, user.username, user.email || '', String(user.user_id)]
+      .some(value => value.toLowerCase().includes(normalizedSearch));
+  });
 
   const resetPassword = async (user: User) => {
     const displayName = `${user.first_name || ''} ${user.last_name || ''}`.trim() || user.username;
@@ -46,7 +55,20 @@ export default function UserManagement() {
       <div className="section-header">
         <div>
           <h2 style={{ fontSize: 20, fontWeight: 700, margin: 0 }}>User Management</h2>
-          <p style={{ fontSize: 13, color: 'var(--gray-500)', marginTop: 2 }}>Reset passwords for user accounts.</p>
+          <p style={{ fontSize: 13, color: 'var(--gray-500)', marginTop: 2 }}>
+            {filteredUsers.length} of {users.length} users · Reset passwords for user accounts.
+          </p>
+        </div>
+        <div className="page-actions">
+          <div className="search-box">
+            <input
+              type="search"
+              placeholder="Search users..."
+              value={search}
+              onChange={event => setSearch(event.target.value)}
+              aria-label="Search users"
+            />
+          </div>
         </div>
       </div>
 
@@ -60,9 +82,9 @@ export default function UserManagement() {
               <div key={item} className="skeleton" style={{ height: 52, marginBottom: 8, borderRadius: 'var(--radius)' }} />
             ))}
           </div>
-        ) : users.length === 0 ? (
+        ) : filteredUsers.length === 0 ? (
           <div className="empty-state">
-            <p className="empty-state-title">No users found</p>
+            <p className="empty-state-title">{users.length === 0 ? 'No users found' : 'No matching users found'}</p>
           </div>
         ) : (
           <div className="table-container">
@@ -76,7 +98,7 @@ export default function UserManagement() {
                 </tr>
               </thead>
               <tbody>
-                {users.map(user => (
+                {filteredUsers.map(user => (
                   <tr key={user.user_id}>
                     <td>
                       <div style={{ fontWeight: 600 }}>{`${user.first_name || ''} ${user.last_name || ''}`.trim() || 'Unnamed user'}</div>
