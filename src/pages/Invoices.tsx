@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { invoiceService, appointmentService, apiErrorMessage, Invoice, Appointment } from '../services/api';
+import { invoiceService, appointmentService, apiErrorMessage, PaymentOutcomeError, Invoice, Appointment } from '../services/api';
 import { useAuth } from '../auth/AuthContext';
 
 export const invoiceStatusBadge = (status: string) => {
@@ -16,7 +16,7 @@ export default function Invoices() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const { user } = useAuth();
-  const canBill = user?.role === 'admin' || user?.role === 'receptionist_cashier';
+  const canBill = user?.role === 'admin' || user?.role === 'receptionist_cashier' || user?.role === 'branch_manager';
 
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [billable, setBillable] = useState<Appointment[]>([]);
@@ -33,6 +33,10 @@ export default function Invoices() {
   const [payMethod, setPayMethod] = useState('Cash');
   const [paying, setPaying] = useState(false);
   const [payError, setPayError] = useState('');
+  const [paymentNeedsReview, setPaymentNeedsReview] = useState(false);
+  const paymentPending = useRef(false);
+  const generationPending = useRef(false);
+  const loadVersion = useRef(0);
 
   const [showGenerate, setShowGenerate] = useState(false);
   const [generateId, setGenerateId] = useState('');
@@ -45,9 +49,11 @@ export default function Invoices() {
       setShowGenerate(true);
       setSearchParams({}, { replace: true });
     }
+    return () => { loadVersion.current++; };
   }, []);
 
   const loadData = async () => {
+    const version = ++loadVersion.current;
     setIsLoading(true);
     setLoadError('');
     try {
@@ -55,11 +61,12 @@ export default function Invoices() {
         invoiceService.getAll(),
         canBill ? appointmentService.getAll({ status: 'Completed' }) : Promise.resolve([]),
       ]);
+      if (version !== loadVersion.current) return;
       setInvoices(invs);
       setBillable(completed.filter(a => !a.invoice_id));
     } catch (err) {
-      setLoadError(apiErrorMessage(err, 'Could not load invoices. Please retry.'));
-    } finally { setIsLoading(false); }
+      if (version === loadVersion.current) setLoadError(apiErrorMessage(err, 'Could not load invoices. Please retry.'));
+    } finally { if (version === loadVersion.current) setIsLoading(false); }
   };
 
   const filtered = invoices.filter(inv => {
@@ -81,16 +88,18 @@ export default function Invoices() {
     setPayAmount('');
     setPayMethod('Cash');
     setPayError('');
+    setPaymentNeedsReview(false);
     setShowPayModal(true);
   };
 
   const handlePayment = async () => {
-    if (!selectedInv || paying) return;
+    if (!selectedInv || paymentPending.current || paymentNeedsReview || loadError) return;
     const amount = Number(payAmount);
     if (!payAmount.trim() || !Number.isFinite(amount) || amount <= 0 || amount > Number(selectedInv.balance)) {
       setPayError('Enter a positive amount no greater than the outstanding balance.');
       return;
     }
+    paymentPending.current = true;
     setPaying(true);
     setPayError('');
     try {
@@ -100,12 +109,19 @@ export default function Invoices() {
       setTimeout(() => setSuccessMsg(''), 5000);
       loadData();
     } catch (err) {
+      if (err instanceof PaymentOutcomeError) setPaymentNeedsReview(true);
       setPayError(apiErrorMessage(err, 'Payment failed'));
-    } finally { setPaying(false); }
+    } finally { paymentPending.current = false; setPaying(false); }
   };
 
   const handleGenerate = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (generationPending.current || loadError) return;
+    if (!billable.some(appointment => appointment.appointment_id === Number(generateId))) {
+      setGenerateError('Select a completed, uninvoiced appointment.');
+      return;
+    }
+    generationPending.current = true;
     setGenerating(true);
     setGenerateError('');
     try {
@@ -115,7 +131,7 @@ export default function Invoices() {
       navigate(`/invoices/${inv.invoice_id}`);
     } catch (err) {
       setGenerateError(apiErrorMessage(err, 'Could not generate the invoice.'));
-    } finally { setGenerating(false); }
+    } finally { generationPending.current = false; setGenerating(false); }
   };
 
   return (
@@ -264,7 +280,7 @@ export default function Invoices() {
             </div>
             <div className="modal-footer">
               <button className="btn btn-ghost" onClick={() => setShowPayModal(false)}>Cancel</button>
-              <button className="btn btn-primary" onClick={handlePayment} disabled={paying || !payAmount || Number(payAmount) <= 0}>
+              <button className="btn btn-primary" onClick={handlePayment} disabled={paymentNeedsReview || paying || !payAmount || Number(payAmount) <= 0}>
                 {paying ? <><span className="spinner" style={{ width: 14, height: 14, borderWidth: 2 }} /> Processing...</> : 'Record Payment'}
               </button>
             </div>

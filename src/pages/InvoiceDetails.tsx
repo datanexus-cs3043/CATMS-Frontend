@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
-  invoiceService, insuranceService, patientService, apiErrorMessage,
+  invoiceService, insuranceService, patientService, apiErrorMessage, PaymentOutcomeError,
   Invoice, InvoiceItem, InsuranceClaim, InsurancePolicy, Payment,
 } from '../services/api';
 import { useAuth } from '../auth/AuthContext';
@@ -38,6 +38,7 @@ export default function InvoiceDetails() {
   const [payMethod, setPayMethod] = useState('Cash');
   const [paying, setPaying] = useState(false);
   const [modalError, setModalError] = useState('');
+  const [paymentNeedsReview, setPaymentNeedsReview] = useState(false);
 
   const [showClaimModal, setShowClaimModal] = useState(false);
   const [claiming, setClaiming] = useState(false);
@@ -84,7 +85,7 @@ export default function InvoiceDetails() {
   };
 
   const handlePayment = async () => {
-    if (!invoice || mutationPending.current || loadError) return;
+    if (!invoice || mutationPending.current || loadError || paymentNeedsReview) return;
     const amount = Number(payAmount);
     if (!payAmount.trim() || !Number.isFinite(amount) || amount <= 0 || amount > Number(invoice.balance)) {
       setModalError('Enter a positive payment no greater than the outstanding balance.');
@@ -99,6 +100,7 @@ export default function InvoiceDetails() {
       flash('success', `Payment of ${money(Number(payAmount))} recorded.`);
       await load(true);
     } catch (err) {
+      if (err instanceof PaymentOutcomeError) setPaymentNeedsReview(true);
       setModalError(apiErrorMessage(err, 'Payment failed'));
     } finally { mutationPending.current = false; setPaying(false); }
   };
@@ -333,7 +335,7 @@ export default function InvoiceDetails() {
                 <p style={{ fontSize: 13, color: 'var(--gray-500)', marginBottom: 16 }}>
                   Outstanding: <strong style={{ color: 'var(--danger)' }}>{money(invoice.balance)}</strong>
                 </p>
-                <button className="btn btn-primary w-full" disabled={mutationsDisabled} onClick={() => { setPayAmount(''); setModalError(''); setShowPayModal(true); }}>Make Payment</button>
+                <button className="btn btn-primary w-full" disabled={mutationsDisabled} onClick={() => { setPayAmount(''); setModalError(''); setPaymentNeedsReview(false); setShowPayModal(true); }}>Make Payment</button>
               </div>
             </div>
           )}
@@ -409,7 +411,7 @@ export default function InvoiceDetails() {
             </div>
             <div className="modal-footer">
               <button className="btn btn-ghost" onClick={() => setShowPayModal(false)}>Cancel</button>
-              <button className="btn btn-primary" onClick={handlePayment} disabled={mutationsDisabled || !payAmount || !Number.isFinite(Number(payAmount)) || Number(payAmount) <= 0 || Number(payAmount) > Number(invoice.balance)}>
+              <button className="btn btn-primary" onClick={handlePayment} disabled={paymentNeedsReview || mutationsDisabled || !payAmount || !Number.isFinite(Number(payAmount)) || Number(payAmount) <= 0 || Number(payAmount) > Number(invoice.balance)}>
                 {paying ? <><span className="spinner" style={{ width: 14, height: 14, borderWidth: 2 }} /> Processing...</> : 'Confirm Payment'}
               </button>
             </div>
