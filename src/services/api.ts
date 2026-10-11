@@ -630,8 +630,12 @@ export const invoiceService = {
   },
   getPayments: (id: number) => get<Payment[]>(`/invoices/${id}/patient-payments`),
   getAllPayments: () => get<Payment[]>('/patient-payments'),
-  getDoctorPayments: (params?: { doctor_id?: number }) =>
-    get<DoctorPayment[]>('/doctor-payments', params as Record<string, unknown>),
+  /** Doctor compensation. The API names the id/amount `payment_id`/`amount`; map them to this model. */
+  getDoctorPayments: async (params?: { doctor_id?: number }) => {
+    const rows = await get<Array<Omit<DoctorPayment, 'doctor_payment_id' | 'doctor_payment'> & { payment_id: number; amount: number }>>(
+      '/doctor-payments', params as Record<string, unknown>);
+    return rows.map(({ payment_id, amount, ...rest }): DoctorPayment => ({ ...rest, doctor_payment_id: payment_id, doctor_payment: amount }));
+  },
 };
 
 // ── Reports Service ───────────────────────────────────────────────────────────
