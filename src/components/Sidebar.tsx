@@ -34,6 +34,7 @@ const ADMIN_NAV: NavSection[] = [
 const CASHIER_NAV: NavSection[] = [
   { section: 'Front Desk', items: [
     { path: '/dashboard', label: 'Dashboard' },
+    { path: '/my-profile', label: 'My Profile' },
     { path: '/appointments', label: 'Appointments' },
     { path: '/patients', label: 'Patients' },
     { path: '/doctors', label: 'Doctors' },
