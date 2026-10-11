@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import FilteredCount from '../components/FilteredCount';
 import { treatmentService, Treatment, TreatmentCategory } from '../services/api';
 import { useAuth } from '../auth/AuthContext';
 
@@ -57,9 +58,7 @@ export default function Treatments() {
       <div className="section-header">
         <div>
           <h2 style={{ fontSize: 20, fontWeight: 700, color: 'var(--gray-900)', margin: 0 }}>Treatment Catalogue</h2>
-          <p style={{ fontSize: 13, color: 'var(--gray-500)', marginTop: 2 }}>
-            {filtered.length} treatments across {categories.length} categories
-          </p>
+          <FilteredCount filtered={filtered.length} total={treatments.length} label="treatments" />
         </div>
         <div className="page-actions">
           <div className="search-box">
@@ -86,28 +85,6 @@ export default function Treatments() {
             ))}
           </div>
         </div>
-      </div>
-
-      {/* Category Summary Cards */}
-      <div className="stats-grid" style={{ marginBottom: 24 }}>
-        {categories.map((cat, idx) => {
-          const count = treatments.filter(t => t.category_id === cat.category_id).length;
-          const color = categoryColors[idx % categoryColors.length];
-          return (
-            <div
-              key={cat.category_id}
-              className="card"
-              style={{ padding: '20px', cursor: 'pointer', borderTop: `3px solid ${color}`, transition: 'all 0.2s' }}
-              onClick={() => setFilterCategory(String(cat.category_id))}
-              onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.transform = 'translateY(-2px)'; (e.currentTarget as HTMLElement).style.boxShadow = 'var(--shadow-md)'; }}
-              onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.transform = ''; (e.currentTarget as HTMLElement).style.boxShadow = ''; }}
-            >
-              <div style={{ fontSize: 22, fontWeight: 600, color, marginBottom: 4 }}>{count}</div>
-              <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--gray-800)' }}>{cat.category_name}</div>
-              {cat.description && <div style={{ fontSize: 12, color: 'var(--gray-400)', marginTop: 4 }}>{cat.description}</div>}
-            </div>
-          );
-        })}
       </div>
 
       {isLoading ? (
