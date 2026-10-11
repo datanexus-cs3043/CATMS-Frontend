@@ -11,7 +11,7 @@ import { appointmentActionError } from '../utils/appointmentActionError';
 
 const typeBadge = (type: string) => {
   if (type === 'Emergency' || type === 'Walk-in') return <span className="badge badge-warning">{type}</span>;
-  return <span className="badge bad  ge-info">{type}</span>;
+  return <span className="badge badge-info">{type}</span>;
 };
 
 export const statusBadge = (status?: string) => {
@@ -56,6 +56,11 @@ export default function Appointments() {
   const [walkIn, setWalkIn] = useState(false);
   const [form, setForm] = useState<Partial<Appointment>>(emptyForm(false, undefined, undefined, user?.branch_id || 1));
   const [submitting, setSubmitting] = useState(false);
+  const submittingRef = useRef(false);
+  const [lookupsLoading, setLookupsLoading] = useState(false);
+  const [lookupsError, setLookupsError] = useState('');
+  const lookupsLoaded = useRef(false);
+  const listVersion = useRef(0);
   const [error, setError] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
   const [listError, setListError] = useState('');
@@ -74,25 +79,40 @@ export default function Appointments() {
     }
   }, []);
 
-  const loadData = async () => {
+  useEffect(() => {
+    if (!showModal || lookupsLoaded.current) return;
+    let cancelled = false;
+    setLookupsLoading(true);
+    setLookupsError('');
+    Promise.all([patientService.getAll(), doctorService.getAll(), treatmentService.getAll()])
+      .then(([pts, docs, txs]) => {
+        if (cancelled) return;
+        setPatients(pts);
+        setDoctors(docs);
+        setTreatments(txs);
+        lookupsLoaded.current = true;
+        setForm(current => ({ ...current, branch_id: docs.find(d => d.doctor_id === current.doctor_id)?.branch_id || current.branch_id }));
+      })
+      .catch(err => { if (!cancelled) setLookupsError(apiErrorMessage(err, 'Could not load booking options. Close and reopen this form to retry.')); })
+      .finally(() => { if (!cancelled) setLookupsLoading(false); });
+    return () => { cancelled = true; };
+  }, [showModal]);
+
+  const loadData = async (refreshBranches = true) => {
+    const version = ++listVersion.current;
     setIsLoading(true);
     setListError('');
     try {
-      const [appts, pts, docs, brs, txs] = await Promise.all([
+      const [appts, brs] = await Promise.all([
         appointmentService.getAll(),
-        patientService.getAll(),
-        doctorService.getAll(),
-        branchService.getAll(),
-        treatmentService.getAll(),
+        refreshBranches ? branchService.getAll() : Promise.resolve(branches),
       ]);
+      if (version !== listVersion.current) return;
       setAppointments(appts);
-      setPatients(pts);
-      setDoctors(docs);
       setBranches(brs);
-      setTreatments(txs);
     } catch (err) {
-      setListError(apiErrorMessage(err, 'Could not load appointments.'));
-    } finally { setIsLoading(false); }
+      if (version === listVersion.current) setListError(apiErrorMessage(err, 'Could not load appointments.'));
+    } finally { if (version === listVersion.current) setIsLoading(false); }
   };
 
   const openModal = (asWalkIn: boolean, patientId?: number, doctorId?: number) => {
@@ -116,18 +136,29 @@ export default function Appointments() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (submittingRef.current || lookupsLoading || lookupsError) return;
+    if (!form.patient_id || !form.doctor_id || !form.branch_id || !form.appointment_date || !form.start_time || !form.end_time || form.start_time >= form.end_time) {
+      setError('Choose a patient and doctor, and an end time after the start time.');
+      return;
+    }
+    submittingRef.current = true;
     setSubmitting(true);
     setError('');
     try {
-      const created = await appointmentService.create(form);
-      setSuccessMsg(`Appointment #${created.appointment_id} booked for ${created.patient_name} with ${created.doctor_name} on ${created.appointment_date} at ${created.start_time}.`);
+      const created = form.appointment_type === 'Emergency'
+        ? await appointmentService.createEmergency(form)
+        : await appointmentService.create(form);
+      const patient = patients.find(p => p.patient_id === created.patient_id);
+      const doctor = doctors.find(d => d.doctor_id === created.doctor_id);
+      setSuccessMsg(`Appointment #${created.appointment_id} booked for ${created.patient_name || `${patient?.first_name || ''} ${patient?.last_name || ''}`.trim() || `patient #${created.patient_id}`} with ${created.doctor_name || doctor?.doctor_name || `doctor #${created.doctor_id}`} on ${created.appointment_date} at ${created.start_time.slice(0, 5)}.`);
       setShowModal(false);
-      loadData();
+      void loadData(false);
       setTimeout(() => setSuccessMsg(''), 5000);
     } catch (err) {
       setError(apiErrorMessage(err, 'Failed to book appointment.'));
     } finally {
       setSubmitting(false);
+      submittingRef.current = false;
     }
   };
 
@@ -144,7 +175,7 @@ export default function Appointments() {
       const cancelled = await appointmentService.cancel(appt.appointment_id);
       setAppointments(current => current.map(item => item.appointment_id === cancelled.appointment_id ? { ...item, status: cancelled.status } : item));
       setSuccessMsg(`Appointment #${appt.appointment_id} was cancelled.`);
-      await loadData();
+      await loadData(false);
     } catch (err) {
       setActionError(appointmentActionError(err));
     } finally {
@@ -288,6 +319,8 @@ export default function Appointments() {
                   <div className="alert alert-info">Walk-ins are created directly by staff for today, without prior booking. The doctor must be free at the chosen time.</div>
                 )}
                 {error && <div className="alert alert-error">{error}</div>}
+                {lookupsLoading && <p role="status">Loading booking options…</p>}
+                {lookupsError && <div className="alert alert-error" role="alert">{lookupsError}</div>}
                 <div className="form-row">
                   <div className="form-group">
                     <label className="form-label">Patient *</label>
@@ -370,7 +403,7 @@ export default function Appointments() {
               </div>
               <div className="modal-footer">
                 <button type="button" className="btn btn-ghost" onClick={() => setShowModal(false)}>Cancel</button>
-                <button type="submit" className="btn btn-primary" disabled={submitting}>
+                <button type="submit" className="btn btn-primary" disabled={submitting || lookupsLoading || !!lookupsError}>
                   {submitting ? <><span className="spinner border-2 size-3.5" /> Saving...</> : walkIn ? 'Register Walk-in' : 'Book Appointment'}
                 </button>
               </div>

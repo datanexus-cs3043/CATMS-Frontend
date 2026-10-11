@@ -9,6 +9,7 @@ import {
   branchService,
   Appointment,
   Branch,
+  apiErrorMessage,
 } from '../services/api';
 import { localDate } from '../utils/date';
 import { HeroSlider, Slide } from '../components/HeroSlider';
@@ -60,28 +61,28 @@ const ACTIONS: Action[] = [
   { label: 'Create an invoice', desc: 'Bill a completed appointment', path: '/invoices?new=1', roles: ['admin', 'receptionist_cashier'] },
   { label: 'Review insurance claims', desc: 'Approve or reject pending claims', path: '/insurance', roles: ['admin', 'branch_manager', 'receptionist_cashier'] },
   { label: 'Management reports', desc: 'Revenue, dues, treatments, coverage', path: '/reports', roles: ['admin', 'branch_manager'] },
-  { label: 'Book an appointment', desc: 'Choose a doctor and a time that suits you', path: '/my-appointments?book=1', roles: ['patient'] },
+  { label: 'My appointments', desc: 'View visits; contact clinic staff to book or change a visit', path: '/my-appointments', roles: ['patient'] },
   { label: 'Find a doctor', desc: 'Search by name or specialty', path: '/doctors', roles: ['patient'] },
   { label: 'My bills', desc: 'See what is paid and what is due', path: '/my-bills', roles: ['patient'] },
   { label: "Today's schedule", desc: 'Your appointments and consultations', path: '/my-appointments', roles: ['doctor'] },
   { label: 'My patients', desc: 'Records of patients under your care', path: '/my-patients', roles: ['doctor'] },
-  { label: 'My profile', desc: 'Contact details, specialties and bio', path: '/my-profile', roles: ['doctor', 'patient'] },
+  { label: 'My profile', desc: 'Your profile and contact information', path: '/my-profile', roles: ['doctor', 'patient'] },
 ];
 
 const SLIDES: Record<string, Slide[]> = {
   staff: [
     { eyebrow: 'Front desk', title: 'Every branch, one appointment book.', body: 'Book, reschedule and register walk-ins in seconds. Double bookings for a doctor are blocked automatically.' },
-    { eyebrow: 'Billing', title: 'From treatment to invoice without re-typing.', body: 'Invoices are built from the treatments recorded at the visit, with insurance coverage applied per policy.' },
-    { eyebrow: 'Patient records', title: 'Registered in Galle, seen in Colombo.', body: 'Patient details, emergency contacts and insurance are available at every MedSync branch.' },
+    { eyebrow: 'Billing', title: 'From treatment to invoice without re-typing.', body: 'Invoices use recorded visit treatments. Patient payments and insurance claim approvals are tracked separately.' },
+    { eyebrow: 'Patient records', title: 'Keep the patient record together.', body: 'View patient details, emergency contacts and insurance within your authorized care and branch scope.' },
   ],
   doctor: [
     { eyebrow: 'Your practice', title: 'Your schedule, and only yours.', body: 'See the day ahead, complete consultations and record treatments from the catalogue.' },
     { eyebrow: 'Clinical notes', title: 'Notes that stay with the visit.', body: 'Consultation notes and treatments are kept against each appointment for your follow-ups.' },
-    { eyebrow: 'Your profile', title: 'Patients see what you publish.', body: 'Keep your specialties and contact details current — changes appear across the system straight away.' },
+    { eyebrow: 'Your profile', title: 'A clear professional profile.', body: 'View your details and contact an administrator when your professional information needs updating.' },
   ],
   patient: [
-    { eyebrow: 'Your care', title: 'Book a specialist in a few taps.', body: 'Search doctors by name or specialty across Colombo, Kandy and Galle and choose a time that suits you.' },
-    { eyebrow: 'Clear billing', title: 'Know what you owe, and what insurance paid.', body: 'Each visit shows whether it is paid, with insurance deductions itemised on your bill.' },
+    { eyebrow: 'Your care', title: 'Find the right doctor for your visit.', body: 'Search doctors by name or specialty, then contact the clinic to book or change an appointment.' },
+    { eyebrow: 'Clear billing', title: 'Know what you paid and what is due.', body: 'View recorded patient payments and invoice balances. Claim approval is separate from received payment.' },
     { eyebrow: 'One record', title: 'Visit any branch — your history comes with you.', body: 'Your appointments, emergency contacts and insurance details are shared across MedSync.' },
   ],
 };
@@ -121,6 +122,10 @@ export default function Dashboard() {
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [branches, setBranches] = useState<Branch[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
+  const [failedStats, setFailedStats] = useState<Array<keyof DashStats>>([]);
+  const [appointmentsError, setAppointmentsError] = useState('');
+  const statValue = (key: keyof DashStats) => failedStats.includes(key) ? 'Unavailable' : stats[key];
 
   const today = localDate(0);
   const staffView = isAdmin || isManager || isCashier;
@@ -128,7 +133,10 @@ export default function Dashboard() {
   const firstName = user?.first_name || user?.username || '';
 
   useEffect(() => {
+    let cancelled = false;
     const fetchData = async () => {
+      setIsLoading(true);
+      setLoadError('');
       try {
         // The API scopes every list to what the signed-in user may see.
         const [patients, doctors, appts, invoices, brs] = await Promise.allSettled([
@@ -139,6 +147,15 @@ export default function Dashboard() {
           // Branch lists are staff-only on the backend; doctors and patients do not need them here.
           personalView ? Promise.resolve([]) : branchService.getAll(),
         ]);
+        if (cancelled) return;
+        const failures: Array<keyof DashStats> = [];
+        if (patients.status === 'rejected') failures.push('totalPatients');
+        if (doctors.status === 'rejected') failures.push('totalDoctors');
+        if (appts.status === 'rejected') failures.push('todayAppointments', 'upcoming');
+        if (invoices.status === 'rejected') failures.push('pendingInvoices', 'outstanding');
+        setFailedStats(failures);
+        setAppointmentsError(appts.status === 'rejected' ? apiErrorMessage(appts.reason, 'Could not load appointments.') : '');
+        setLoadError(failures.length || brs.status === 'rejected' ? 'Some dashboard data could not be loaded. Unavailable figures are not zero; open the relevant page to retry.' : '');
         const list = appts.status === 'fulfilled' ? appts.value : [];
         const invs = invoices.status === 'fulfilled' ? invoices.value : [];
         setStats({
@@ -154,12 +171,13 @@ export default function Dashboard() {
             .sort((a, b) => a.appointment_date.localeCompare(b.appointment_date) || a.start_time.localeCompare(b.start_time)),
           ...list.filter(a => a.appointment_date < today),
         ].slice(0, 8));
-        if (brs.status === 'fulfilled') setBranches(brs.value);
+        setBranches(brs.status === 'fulfilled' ? brs.value : []);
       } finally {
-        setIsLoading(false);
+        if (!cancelled) setIsLoading(false);
       }
     };
     fetchData();
+    return () => { cancelled = true; };
   }, [today, user?.user_id]);
 
   const greeting = () => {
@@ -175,13 +193,13 @@ export default function Dashboard() {
     </>
   ) : isPatient ? (
     <>
-      <button className="btn btn-light" onClick={() => navigate('/my-appointments?book=1')}>Book appointment</button>
+      <button className="btn btn-light" onClick={() => navigate('/my-appointments')}>My appointments</button>
       <button className="btn btn-outline-light" onClick={() => navigate('/doctors')}>Find a doctor</button>
     </>
   ) : (
     <>
       <button className="btn btn-light" onClick={() => navigate('/my-appointments')}>Open my schedule</button>
-      <button className="btn btn-outline-light" onClick={() => navigate('/my-profile')}>Edit profile</button>
+      <button className="btn btn-outline-light" onClick={() => navigate('/my-profile')}>View profile</button>
     </>
   );
 
@@ -199,21 +217,22 @@ export default function Dashboard() {
       </div>
 
       <HeroSlider slides={slides} actions={heroActions} />
+      {loadError && <div className="alert alert-error" role="alert">{loadError}</div>}
 
       {isLoading ? (
         <div className="stats-grid">{[1, 2, 3, 4].map(i => <div key={i} className="skeleton h-24" />)}</div>
       ) : (
         <div className="stats-grid">
-          {staffView && <StatCard label="Registered patients" value={stats.totalPatients} onClick={() => navigate('/patients')} />}
-          {isDoctor && <StatCard label="My patients" value={stats.totalPatients} onClick={() => navigate('/my-patients')} />}
-          {(staffView || isPatient) && <StatCard label={isPatient ? 'Doctors available' : 'Doctors on staff'} value={stats.totalDoctors} onClick={() => navigate('/doctors')} />}
-          <StatCard label={personalView ? 'My appointments today' : 'Appointments today'} value={stats.todayAppointments} onClick={() => navigate(personalView ? '/my-appointments' : '/appointments')} />
-          {personalView && <StatCard label="Upcoming appointments" value={stats.upcoming} onClick={() => navigate('/my-appointments')} />}
-          {staffView && <StatCard label="Invoices awaiting payment" value={stats.pendingInvoices} onClick={() => navigate('/invoices')} />}
+          {staffView && <StatCard label="Registered patients" value={statValue('totalPatients')} onClick={() => navigate('/patients')} />}
+          {isDoctor && <StatCard label="My patients" value={statValue('totalPatients')} onClick={() => navigate('/my-patients')} />}
+          {(staffView || isPatient) && <StatCard label={isPatient ? 'Doctors available' : 'Doctors on staff'} value={statValue('totalDoctors')} onClick={() => navigate('/doctors')} />}
+          <StatCard label={personalView ? 'My appointments today' : 'Appointments today'} value={statValue('todayAppointments')} onClick={() => navigate(personalView ? '/my-appointments' : '/appointments')} />
+          {personalView && <StatCard label="Upcoming appointments" value={statValue('upcoming')} onClick={() => navigate('/my-appointments')} />}
+          {staffView && <StatCard label="Invoices awaiting payment" value={statValue('pendingInvoices')} onClick={() => navigate('/invoices')} />}
           {isPatient && (
             <StatCard
               label="Balance due"
-              value={`Rs. ${stats.outstanding.toLocaleString()}`}
+              value={failedStats.includes('outstanding') ? 'Unavailable' : `Rs. ${stats.outstanding.toLocaleString()}`}
               hint={stats.outstanding > 0 ? 'View bills' : undefined}
               onClick={() => navigate('/my-bills')}
             />
@@ -255,7 +274,7 @@ export default function Dashboard() {
           </div>
           {isLoading ? (
             <div className="card-body">{[1, 2, 3].map(i => <div key={i} className="skeleton h-11 mb-2" />)}</div>
-          ) : appointments.length === 0 ? (
+          ) : appointmentsError ? <div className="alert alert-error" role="alert">{appointmentsError}</div> : appointments.length === 0 ? (
             <div className="empty-state">
               <p className="empty-state-title">No appointments yet</p>
               <p className="empty-state-desc">Appointments will appear here once they are booked.</p>

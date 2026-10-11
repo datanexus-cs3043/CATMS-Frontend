@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   reportsService,
   BranchAppointmentSummary,
@@ -20,8 +20,6 @@ import {
   Search,
   ShieldAlert,
   BarChart3,
-  TrendingUp,
-  PieChart,
   Activity,
   Award,
 } from 'lucide-react';
@@ -50,12 +48,21 @@ export default function Reports() {
   });
 
   const isAuthorized = hasRole(['admin', 'branch_manager']);
+  const requestVersion = useRef(0);
 
   const loadReport = async (type: ReportType, filter = dateFilter) => {
+    const version = ++requestVersion.current;
+    const isCurrent = () => requestVersion.current === version;
+    if (type !== 'branch' && filter.from && filter.to && filter.from > filter.to) {
+      setError('From date must not be after to date.');
+      setIsLoading(false);
+      return;
+    }
     setIsLoading(true);
     setError('');
 
     try {
+      const period = { from_date: filter.from || undefined, to_date: filter.to || undefined };
       switch (type) {
         case 'branch': {
           const res = await reportsService.getBranchAppointmentSummary({
@@ -63,7 +70,7 @@ export default function Reports() {
             from_date: filter.from || undefined,
             to_date: filter.to || undefined,
           });
-          setBranchData(res || []);
+          if (isCurrent()) setBranchData(res || []);
           break;
         }
         case 'doctor_revenue': {
@@ -71,12 +78,12 @@ export default function Reports() {
             from_date: filter.from || undefined,
             to_date: filter.to || undefined,
           });
-          setDoctorRevData(res || []);
+          if (isCurrent()) setDoctorRevData(res || []);
           break;
         }
         case 'outstanding': {
           const res = await reportsService.getOutstandingPatients();
-          setOutstandingData(res || []);
+          if (isCurrent()) setOutstandingData(res || []);
           break;
         }
         case 'treatment': {
@@ -84,19 +91,21 @@ export default function Reports() {
             from_date: filter.from || undefined,
             to_date: filter.to || undefined,
           });
-          setTreatmentData(res || []);
+          if (isCurrent()) setTreatmentData(res || []);
           break;
         }
         case 'insurance': {
           const res = await reportsService.getInsuranceSummary();
-          setInsuranceData(res || null);
+          if (isCurrent()) setInsuranceData(res || null);
           break;
         }
       }
     } catch (err: any) {
-      setError(err?.response?.data?.detail || 'Could not retrieve report from the database.');
+      if (isCurrent()) {
+        setError(err?.response?.data?.detail || 'Could not retrieve report from the database.');
+      }
     } finally {
-      setIsLoading(false);
+      if (isCurrent()) setIsLoading(false);
     }
   };
 
@@ -104,6 +113,7 @@ export default function Reports() {
     if (isAuthorized) {
       loadReport(activeReport);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeReport]);
 
   // Instant Search Filters
@@ -712,7 +722,7 @@ export default function Reports() {
       </div>
     );
   }
-  
+
   return (
     <div style={{ animation: 'fadeIn 0.3s ease' }}>
       {/* ── Executive Header Banner ── */}
@@ -878,6 +888,9 @@ export default function Reports() {
                   </div>
                 </div>
               </div>
+              <p style={{ margin: '12px 0 0', fontSize: 13, color: 'var(--gray-600)' }}>
+                {activeReport === 'branch' ? 'Dates refer to appointment days.' : activeReport === 'treatment' ? 'Dates refer to completed appointment days.' : 'Dates refer to invoice issue dates; payments and balances reflect their current recorded values.'}
+              </p>
             </div>
           </div>
 
@@ -889,14 +902,13 @@ export default function Reports() {
                 <div key={i} className="skeleton" style={{ height: 68, borderRadius: 'var(--radius)' }} />
               ))}
             </div>
-          ) : (
+          ) : !error && (
             <>
               {/* ───────────────────────────────────────────────────────────
-                  1. BRANCH APPOINTMENT SUMMARY (Decluttered & Executive)
+                  1. BRANCH APPOINTMENT SUMMARY
                   ─────────────────────────────────────────────────────────── */}
               {activeReport === 'branch' && (
                 <div className="card" style={{ border: '1px solid var(--gray-200)', boxShadow: 'var(--shadow-sm)' }}>
-                  {/* Card Header with Network Completion Badge */}
                   <div style={{ padding: '20px 24px', borderBottom: '1px solid var(--gray-200)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
                     <div>
                       <h3 style={{ fontSize: 16, fontWeight: 700, color: 'var(--gray-900)', margin: 0 }}>
@@ -922,7 +934,6 @@ export default function Reports() {
                     })()}
                   </div>
 
-                  {/* Clean Top Metrics Ribbon */}
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 1, background: 'var(--gray-200)', borderBottom: '1px solid var(--gray-200)' }}>
                     <div style={{ background: '#ffffff', padding: '16px 20px' }}>
                       <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--gray-500)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Total Consultations</div>
@@ -950,7 +961,6 @@ export default function Reports() {
                     </div>
                   </div>
 
-                  {/* Single Clean Visualizer: Branch Throughput & Status Distribution */}
                   {filteredBranch.length > 0 && (
                     <div style={{ padding: '20px 24px', background: '#ffffff', borderBottom: '1px solid var(--gray-200)' }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
@@ -1006,7 +1016,6 @@ export default function Reports() {
                     </div>
                   )}
 
-                  {/* Clean Ledger-Style Table */}
                   {filteredBranch.length === 0 ? (
                     <div className="empty-state" style={{ padding: 48, textAlign: 'center' }}>
                       <Building2 size={36} style={{ color: 'var(--gray-300)', marginBottom: 8 }} />
@@ -1088,7 +1097,6 @@ export default function Reports() {
                     <span className="badge badge-primary">{filteredDoctor.length} practitioners</span>
                   </div>
 
-                  {/* Summary Metric Tiles */}
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 14, padding: '18px 20px', background: 'var(--off-white)', borderBottom: '1px solid var(--gray-200)' }}>
                     <div style={{ background: '#ffffff', padding: '12px 16px', borderRadius: 'var(--radius)', border: '1px solid var(--gray-200)', borderLeft: '4px solid var(--primary)' }}>
                       <div style={{ fontSize: 11, color: 'var(--primary)', textTransform: 'uppercase', fontWeight: 700 }}>Total Billed</div>
@@ -1110,7 +1118,6 @@ export default function Reports() {
                     </div>
                   </div>
 
-                  {/* ── STATISTICAL DIAGRAM: Revenue Leaderboard ── */}
                   {filteredDoctor.length > 0 && (() => {
                     const maxBilled = Math.max(...filteredDoctor.map(d => Number(d.total_revenue) || 0), 1);
                     const grandTotal = filteredDoctor.reduce((acc, d) => acc + Number(d.total_revenue || 0), 0);
@@ -1166,7 +1173,7 @@ export default function Reports() {
                         </thead>
                         <tbody>
                           {filteredDoctor.map(d => (
-                            <tr key={d.doctor_id}>
+                            <tr key={`${d.doctor_id}-${d.branch_name}`}>
                               <td style={{ fontWeight: 600, color: 'var(--gray-900)' }}>{d.doctor_name}</td>
                               <td style={{ color: 'var(--gray-600)' }}>{d.branch_name || 'All Branches'}</td>
                               <td style={{ textAlign: 'center' }}>{d.appointment_count}</td>
@@ -1195,7 +1202,6 @@ export default function Reports() {
                     <span className="badge badge-danger">{filteredOutstanding.length} overdue debtors</span>
                   </div>
 
-                  {/* Summary Metric Tiles */}
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 14, padding: '18px 20px', background: 'var(--off-white)', borderBottom: '1px solid var(--gray-200)' }}>
                     <div style={{ background: '#ffffff', padding: '12px 16px', borderRadius: 'var(--radius)', border: '1px solid var(--gray-200)', borderLeft: '4px solid var(--danger)' }}>
                       <div style={{ fontSize: 11, color: 'var(--danger)', textTransform: 'uppercase', fontWeight: 700 }}>Total Receivables Overdue</div>
@@ -1217,7 +1223,6 @@ export default function Reports() {
                     </div>
                   </div>
 
-                  {/* ── STATISTICAL DIAGRAM: Debt Share & Concentration Meter ── */}
                   {filteredOutstanding.length > 0 && (() => {
                     const totalDebt = filteredOutstanding.reduce((acc, p) => acc + Number(p.total_outstanding || 0), 0);
                     return (
@@ -1298,7 +1303,6 @@ export default function Reports() {
                     <span className="badge badge-primary">{filteredTreatment.length} procedures</span>
                   </div>
 
-                  {/* Summary Metric Tiles */}
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 14, padding: '18px 20px', background: 'var(--off-white)', borderBottom: '1px solid var(--gray-200)' }}>
                     <div style={{ background: '#ffffff', padding: '12px 16px', borderRadius: 'var(--radius)', border: '1px solid var(--gray-200)', borderLeft: '4px solid var(--primary)' }}>
                       <div style={{ fontSize: 11, color: 'var(--primary)', textTransform: 'uppercase', fontWeight: 700 }}>Procedures Performed</div>
@@ -1320,7 +1324,6 @@ export default function Reports() {
                     </div>
                   </div>
 
-                  {/* ── STATISTICAL DIAGRAM: Clinical Demand ── */}
                   {filteredTreatment.length > 0 && (() => {
                     const maxCount = Math.max(...filteredTreatment.map(t => Number(t.count) || 0), 1);
                     return (
@@ -1396,13 +1399,13 @@ export default function Reports() {
                     </div>
                   ) : (
                     <>
-                      {/* Metric Tiles */}
                       <div className="stats-grid" style={{ marginBottom: 20 }}>
                         {[
-                          { label: 'Total Invoiced Portfolio', value: formatLKR(insuranceData.invoiced_amount), color: '#0f4575' },
-                          { label: 'Insurance Approved', value: formatLKR(insuranceData.insurance_approved_amount), color: '#1c7c54' },
-                          { label: 'Patient Out-of-Pocket', value: formatLKR(insuranceData.out_of_pocket_amount), color: '#b86e0c' },
-                          { label: 'Outstanding Balance', value: formatLKR(insuranceData.outstanding_amount), color: '#c2372f' },
+                          { label: 'Total Billed', value: `Rs. ${Number(insuranceData.invoiced_amount).toLocaleString()}`, color: '#3f89cc' },
+                          { label: 'Insurance Approved (not cash)', value: `Rs. ${Number(insuranceData.insurance_approved_amount).toLocaleString()}`, color: '#1d6fb8' },
+                          { label: 'Patient Payments (net)', value: `Rs. ${Number(insuranceData.patient_paid_amount).toLocaleString()}`, color: '#155a96' },
+                          { label: 'Out-of-Pocket Recorded', value: `Rs. ${Number(insuranceData.out_of_pocket_amount).toLocaleString()}`, color: '#b86e0c' },
+                          { label: 'Outstanding Balance', value: `Rs. ${Number(insuranceData.outstanding_amount).toLocaleString()}`, color: '#c2372f' },
                         ].map(s => (
                           <div key={s.label} className="stat-card" style={{ borderTop: `3px solid ${s.color}` }}>
                             <div className="stat-value" style={{ color: s.color }}>{s.value}</div>
@@ -1411,7 +1414,6 @@ export default function Reports() {
                         ))}
                       </div>
 
-                      {/* ── STATISTICAL DIAGRAM: Three-Way Financial Split Meter ── */}
                       <div className="card" style={{ marginBottom: 20 }}>
                         <div className="card-header" style={{ padding: '16px 20px', borderBottom: '1px solid var(--gray-200)' }}>
                           <h3 className="card-title" style={{ fontSize: 15, color: 'var(--gray-900)' }}>Claim Settlement & Payment Method Ratio</h3>
@@ -1457,6 +1459,12 @@ export default function Reports() {
                           })()}
                         </div>
                       </div>
+
+                      <div className="alert alert-info">
+                        Insurance approval is not a received payment and does not automatically reduce an invoice balance.
+                        Patient payments include recorded refunds and adjustments. Approved claims and patient payments
+                        are separate measures, not percentages of a single cash total.
+                      </div>
                     </>
                   )}
                 </div>
@@ -1467,4 +1475,4 @@ export default function Reports() {
       </div>
     </div>
   );
-}  
+}

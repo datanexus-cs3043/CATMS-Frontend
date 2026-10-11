@@ -25,6 +25,7 @@ export default function Invoices() {
   const [search, setSearch] = useState('');
   const [patientFilter, setPatientFilter] = useState<number | null>(searchParams.get('patient_id') ? Number(searchParams.get('patient_id')) : null);
   const [successMsg, setSuccessMsg] = useState('');
+  const [loadError, setLoadError] = useState('');
 
   const [showPayModal, setShowPayModal] = useState(false);
   const [selectedInv, setSelectedInv] = useState<Invoice | null>(null);
@@ -48,15 +49,16 @@ export default function Invoices() {
 
   const loadData = async () => {
     setIsLoading(true);
+    setLoadError('');
     try {
       const [invs, completed] = await Promise.all([
         invoiceService.getAll(),
-        appointmentService.getAll({ status: 'Completed' }),
+        canBill ? appointmentService.getAll({ status: 'Completed' }) : Promise.resolve([]),
       ]);
       setInvoices(invs);
       setBillable(completed.filter(a => !a.invoice_id));
-    } catch {
-      /* the page shows an empty state */
+    } catch (err) {
+      setLoadError(apiErrorMessage(err, 'Could not load invoices. Please retry.'));
     } finally { setIsLoading(false); }
   };
 
@@ -83,7 +85,12 @@ export default function Invoices() {
   };
 
   const handlePayment = async () => {
-    if (!selectedInv || !payAmount) return;
+    if (!selectedInv || paying) return;
+    const amount = Number(payAmount);
+    if (!payAmount.trim() || !Number.isFinite(amount) || amount <= 0 || amount > Number(selectedInv.balance)) {
+      setPayError('Enter a positive amount no greater than the outstanding balance.');
+      return;
+    }
     setPaying(true);
     setPayError('');
     try {
@@ -113,17 +120,18 @@ export default function Invoices() {
 
   return (
     <div style={{ animation: 'fadeIn 0.3s ease' }}>
+      {loadError && <div className="alert alert-error" role="alert">{loadError}<button className="btn btn-ghost btn-sm" onClick={() => void loadData()}>Retry</button></div>}
       {successMsg && <div className="alert alert-success">{successMsg}</div>}
 
       <div className="stats-grid" style={{ marginBottom: 24 }}>
         {[
           { label: 'Total Billed', value: money(totalBilled), color: '#3f89cc' },
           { label: 'Collected from Patients', value: money(totalCollected), color: '#1d6fb8' },
-          { label: 'Covered by Insurance', value: money(totalInsurance), color: '#155a96' },
+          { label: 'Insurance Approved (not cash)', value: money(totalInsurance), color: '#155a96' },
           { label: 'Outstanding Balances', value: money(totalBalance), color: '#c2372f' },
         ].map(s => (
           <div key={s.label} className="stat-card">
-            <div className="stat-value" style={{ color: s.color }}>{s.value}</div>
+            <div className="stat-value" style={{ color: s.color }}>{loadError ? 'Unavailable' : isLoading ? '…' : s.value}</div>
             <div className="stat-label">{s.label}</div>
           </div>
         ))}
@@ -162,7 +170,7 @@ export default function Invoices() {
           <div style={{ padding: 24 }}>
             {[1, 2, 3].map(i => <div key={i} className="skeleton" style={{ height: 52, marginBottom: 8, borderRadius: 'var(--radius)' }} />)}
           </div>
-        ) : filtered.length === 0 ? (
+        ) : loadError ? <div className="card-body">Invoice data is unavailable. Use Retry above.</div> : filtered.length === 0 ? (
           <div className="empty-state">
             <p className="empty-state-title">No invoices found</p>
           </div>
@@ -274,7 +282,7 @@ export default function Invoices() {
             <form onSubmit={handleGenerate}>
               <div className="modal-body">
                 <div className="alert alert-info">
-                  Invoices are generated from the treatments recorded on a completed appointment. If the patient has an active policy, an insurance claim for covered treatments is created automatically.
+                  Invoices are generated from the treatments recorded on a completed appointment. Insurance claims are filed separately from the invoice details screen; approval does not record an insurer payment.
                 </div>
                 {generateError && <div className="alert alert-error">{generateError}</div>}
                 {billable.length === 0 ? (
