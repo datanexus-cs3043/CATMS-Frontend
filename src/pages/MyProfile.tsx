@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../auth/AuthContext';
+import { KeyRound } from 'lucide-react';
 import {
-  doctorService, patientService, specialtyService, apiErrorMessage,
+  doctorService, patientService, specialtyService, userService, apiErrorMessage,
   Doctor, Patient, Specialty, EmergencyContact, InsurancePolicy,
 } from '../services/api';
 
@@ -26,6 +27,10 @@ export default function MyProfile() {
   const [successMsg, setSuccessMsg] = useState('');
   const [error, setError] = useState('');
   const [contactForm, setContactForm] = useState({ contact_name: '', relationship: '', phone: '' });
+  const [passwordForm, setPasswordForm] = useState({ current_password: '', new_password: '', confirm_password: '' });
+  const [passwordSaving, setPasswordSaving] = useState(false);
+  const [passwordError, setPasswordError] = useState('');
+  const [passwordSuccess, setPasswordSuccess] = useState('');
 
   useEffect(() => { loadProfile(); }, [user?.user_id]);
 
@@ -113,12 +118,40 @@ export default function MyProfile() {
     }
   };
 
+  const handlePasswordChange = async (event: React.FormEvent) => {
+    event.preventDefault();
+    setPasswordError('');
+    setPasswordSuccess('');
+    if (passwordForm.new_password !== passwordForm.confirm_password) {
+      setPasswordError('The new password and confirmation do not match.');
+      return;
+    }
+
+    setPasswordSaving(true);
+    try {
+      const response = await userService.changePassword({
+        current_password: passwordForm.current_password,
+        new_password: passwordForm.new_password,
+      });
+      setPasswordSuccess(response.message);
+      setPasswordForm({ current_password: '', new_password: '', confirm_password: '' });
+    } catch (err) {
+      setPasswordError(apiErrorMessage(err, 'Unable to change your password.'));
+    } finally {
+      setPasswordSaving(false);
+    }
+  };
+
   if (isLoading) {
     return <div style={{ display: 'flex', justifyContent: 'center', padding: 48 }}><div className="spinner spinner-lg" /></div>;
   }
 
   const roleColor = isDoctor ? '#1d6fb8' : '#0f4575';
-  const displayName = doctor ? doctor.doctor_name : patient ? `${patient.first_name} ${patient.last_name}` : `${user?.first_name} ${user?.last_name}`;
+  const displayName = doctor
+    ? doctor.doctor_name
+    : patient
+      ? `${patient.first_name} ${patient.last_name}`
+      : `${user?.first_name || ''} ${user?.last_name || ''}`.trim() || user?.username || 'My Profile';
   const initials = displayName.replace('Dr. ', '').split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase();
 
   
@@ -351,6 +384,51 @@ export default function MyProfile() {
           </div>
         </>
       )}
+
+      <div className="card" style={{ marginTop: 20 }}>
+        <div className="card-header" style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <KeyRound size={18} color="var(--primary)" aria-hidden="true" />
+          <div>
+            <h3 className="card-title">Change Password</h3>
+            <p style={{ color: 'var(--gray-500)', fontSize: 13, marginTop: 2 }}>Update the password for your account.</p>
+          </div>
+        </div>
+        <form onSubmit={handlePasswordChange}>
+          <div className="card-body">
+            {passwordSuccess && <div className="alert alert-success" style={{ marginBottom: 16 }}>{passwordSuccess}</div>}
+            {passwordError && <div className="alert alert-error" style={{ marginBottom: 16 }}>{passwordError}</div>}
+            <div className="form-row">
+              <div className="form-group">
+                <label className="form-label" htmlFor="profile-current-password">Current password</label>
+                <input id="profile-current-password" className="form-control" type="password" required
+                  value={passwordForm.current_password}
+                  onChange={e => setPasswordForm({ ...passwordForm, current_password: e.target.value })}
+                  autoComplete="current-password" />
+              </div>
+              <div className="form-group">
+                <label className="form-label" htmlFor="profile-new-password">New password</label>
+                <input id="profile-new-password" className="form-control" type="password" minLength={6} required
+                  value={passwordForm.new_password}
+                  onChange={e => setPasswordForm({ ...passwordForm, new_password: e.target.value })}
+                  autoComplete="new-password" />
+              </div>
+            </div>
+            <div className="form-group" style={{ marginBottom: 0 }}>
+              <label className="form-label" htmlFor="profile-confirm-password">Confirm new password</label>
+              <input id="profile-confirm-password" className="form-control" type="password" minLength={6} required
+                value={passwordForm.confirm_password}
+                onChange={e => setPasswordForm({ ...passwordForm, confirm_password: e.target.value })}
+                autoComplete="new-password" />
+              <div style={{ fontSize: 12, color: 'var(--gray-500)', marginTop: 5 }}>The new password must be at least 6 characters.</div>
+            </div>
+          </div>
+          <div className="card-footer" style={{ display: 'flex', justifyContent: 'flex-end' }}>
+            <button type="submit" className="btn btn-primary" disabled={passwordSaving}>
+              {passwordSaving ? 'Changing...' : 'Change Password'}
+            </button>
+          </div>
+        </form>
+      </div>
     </div>
   );
 }
