@@ -25,6 +25,20 @@ export interface LoginResponse {
   token_type?: string;
 }
 
+export interface User {
+  user_id: number;
+  username: string;
+  first_name?: string;
+  last_name?: string;
+  email?: string;
+  contact_details?: string;
+}
+
+export interface PasswordResetResponse {
+  user_id: number;
+  message: string;
+}
+
 export interface RegisterRequest {
   first_name: string;
   last_name: string;
@@ -409,6 +423,15 @@ export const authService = {
     const res = await api.get<{ csrf_token: string }>('/auth/csrf', { timeout: 15000 });
     return res.data;
   },
+};
+
+// ── User account service ─────────────────────────────────────────────────────
+export const userService = {
+  changePassword: (data: { current_password: string; new_password: string }) =>
+    post<PasswordResetResponse>('/users/change-password', data),
+  list: () => get<User[]>('/users'),
+  resetPassword: (userId: number) =>
+    post<PasswordResetResponse>(`/users/${userId}/reset-password`, {}),
 };
 
 // ── Generic CRUD helpers ──────────────────────────────────────────────────────
