@@ -1,36 +1,34 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { doctorService, branchService, specialtyService, Doctor, Branch, Specialty } from '../services/api';
+import { doctorService, apiErrorMessage, Doctor } from '../services/api';
 import { useAuth } from '../auth/AuthContext';
+import DoctorProfileForm from '../components/DoctorProfileForm';
 
 export default function Doctors() {
   const navigate = useNavigate();
-  const { isPatient } = useAuth();
+  const { user, isPatient } = useAuth();
 
   const [doctors, setDoctors] = useState<Doctor[]>([]);
-  const [branches, setBranches] = useState<Branch[]>([]);
-  const [specialties, setSpecialties] = useState<Specialty[]>([]);
+  const [error, setError] = useState('');
+  const [registering, setRegistering] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [filterBranch, setFilterBranch] = useState('');
   const [filterSpecialty, setFilterSpecialty] = useState('');
 
-  useEffect(() => { loadData(); }, []);
+  useEffect(() => {
+    let cancelled = false;
+    doctorService.getAll()
+      .then(data => { if (!cancelled) setDoctors(data); })
+      .catch(err => { if (!cancelled) setError(apiErrorMessage(err, 'Could not load the doctor directory. Please reload.')); })
+      .finally(() => { if (!cancelled) setIsLoading(false); });
+    return () => { cancelled = true; };
+  }, []);
 
-  const loadData = async () => {
-    setIsLoading(true);
-    try {
-      const [d, b, s] = await Promise.all([
-        doctorService.getAll(),
-        branchService.getAll(),
-        specialtyService.getAll(),
-      ]);
-      setDoctors(d);
-      setBranches(b);
-      setSpecialties(s);
-    } catch {}
-    finally { setIsLoading(false); }
-  };
+  const branches = Array.from(new Map(doctors.filter(d => d.branch_id).map(d => [
+    d.branch_id, { branch_id: d.branch_id, branch_name: d.branch_name || `Branch #${d.branch_id}` },
+  ])).values());
+  const specialties = Array.from(new Map(doctors.flatMap(d => d.specialties || []).map(s => [s.specialty_id, s])).values());
 
   const filtered = doctors.filter(d => {
     const q = search.trim().toLowerCase();
@@ -61,9 +59,10 @@ export default function Doctors() {
           </p>
         </div>
         <div className="page-actions">
+          {user?.role === 'admin' && <button className="btn btn-primary" onClick={() => setRegistering(true)}>Register doctor</button>}
           <div className="search-box">
             <input
-              placeholder="Search by name or specialty..."
+              placeholder="Search by name, license or specialty..."
               value={search}
               onChange={e => setSearch(e.target.value)}
             />
@@ -79,7 +78,16 @@ export default function Doctors() {
         </div>
       </div>
 
-      {isLoading ? (
+      {registering && user?.role === 'admin' && <div className="modal-overlay">
+        <div className="modal" role="dialog" aria-modal="true" aria-labelledby="register-doctor-title">
+          <div className="modal-header"><h3 id="register-doctor-title">Register doctor</h3></div>
+          <div className="modal-body">
+            <DoctorProfileForm onCancel={() => setRegistering(false)} onSaved={doc => navigate(`/doctors/${doc.doctor_id}`)} />
+          </div>
+        </div>
+      </div>}
+
+      {error ? <div className="alert alert-error" role="alert">{error}</div> : isLoading ? (
         <div className="grid grid-cols-[repeat(auto-fill,minmax(300px,1fr))] gap-4">
           {[1,2,3,4].map(i => (
             <div key={i} className="skeleton h-50 rounded-lg" />

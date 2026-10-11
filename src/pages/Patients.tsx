@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { patientService, branchService, apiErrorMessage, Patient, Branch } from '../services/api';
-import { localDate } from '../services/mockData';
+import { localDate } from '../utils/date';
 import { useAuth } from '../auth/AuthContext';
 
 

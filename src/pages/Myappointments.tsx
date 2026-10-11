@@ -5,7 +5,7 @@ import {
   appointmentService, doctorService, treatmentService, specialtyService, apiErrorMessage,
   Appointment, Doctor, Treatment, Specialty,
 } from '../services/api';
-import { localDate } from '../services/mockData';
+import { localDate } from '../utils/date';
 
 const statusColor: Record<string, { bg: string; color: string }> = {
   Scheduled: { bg: '#f3f8fd', color: '#1d6fb8' },

@@ -14,7 +14,11 @@ const roleColor: Record<string, { color: string; bg: string }> = {
 
 export default function Staff() {
   const { isAdmin, isManager, user } = useAuth();
-  const canManageStaff = isAdmin || isManager;
+  const canManageStaff = isAdmin || (isManager && !!user?.branch_id);
+  const canEditStaff = (staff: Staff) => isAdmin || (
+    isManager && staff.branch_id === user?.branch_id &&
+    !/admin|manager/i.test(`${staff.role} ${staff.staff_type}`)
+  );
   const [staffList, setStaffList] = useState<Staff[]>([]);
   const [branches, setBranches] = useState<Branch[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -22,6 +26,7 @@ export default function Staff() {
   const [filterBranch, setFilterBranch] = useState('');
   const [filterRole, setFilterRole] = useState('');
   const [showModal, setShowModal] = useState(false);
+  const [editingStaff, setEditingStaff] = useState<Staff | null>(null);
   const blankForm = {
     first_name: '', last_name: '', email: '', contact_details: '',
     staff_type: 'Medical', role: 'Doctor', branch_id: 1, doctor_license_number: '',
@@ -54,9 +59,23 @@ export default function Staff() {
     e.preventDefault();
     setSubmitting(true); setError('');
     try {
-      await staffService.create(form as Partial<Staff>);
-      setSuccessMsg(`${form.first_name} ${form.last_name} added as ${form.role}.`);
+      if (editingStaff) {
+        await staffService.update(editingStaff.staff_id, {
+          first_name: form.first_name,
+          last_name: form.last_name,
+          ...(isAdmin ? { email: form.email } : {}),
+          contact_details: form.contact_details,
+          staff_type: form.staff_type,
+          role: form.role,
+          branch_id: Number(form.branch_id),
+        });
+        setSuccessMsg(`${form.first_name} ${form.last_name} updated successfully.`);
+      } else {
+        await staffService.create(form as Partial<Staff>);
+        setSuccessMsg(`${form.first_name} ${form.last_name} added as ${form.role}.`);
+      }
       setShowModal(false);
+      setEditingStaff(null);
       loadData();
       setTimeout(() => setSuccessMsg(''), 3000);
     } catch (err) {
@@ -97,6 +116,7 @@ export default function Staff() {
               className="btn btn-primary"
               onClick={() => {
                 const defaultBranch = isManager && user?.branch_id ? user.branch_id : 1;
+                setEditingStaff(null);
                 setForm({ ...blankForm, branch_id: defaultBranch });
                 setShowModal(true);
                 setError('');
@@ -142,6 +162,7 @@ export default function Staff() {
                   <th>Branch</th>
                   <th>Contact</th>
                   <th>Email</th>
+                  {canManageStaff && <th>Actions</th>}
                 </tr>
               </thead>
               <tbody>
@@ -165,6 +186,32 @@ export default function Staff() {
                       <td><span className="tag">{getBranchName(s.branch_id)}</span></td>
                       <td style={{ fontSize: 13, color: 'var(--gray-600)' }}>{s.contact_details || '—'}</td>
                       <td style={{ fontSize: 13, color: 'var(--gray-600)' }}>{s.email}</td>
+                      {canManageStaff && (
+                        <td>
+                          {canEditStaff(s) && (
+                            <button
+                              className="btn btn-secondary btn-sm"
+                              onClick={() => {
+                                setEditingStaff(s);
+                                setForm({
+                                  first_name: s.first_name,
+                                  last_name: s.last_name,
+                                  email: s.email,
+                                  contact_details: s.contact_details || '',
+                                  staff_type: s.staff_type,
+                                  role: s.role,
+                                  branch_id: s.branch_id,
+                                  doctor_license_number: '',
+                                });
+                                setError('');
+                                setShowModal(true);
+                              }}
+                            >
+                              Edit
+                            </button>
+                          )}
+                        </td>
+                      )}
                     </tr>
                   );
                 })}
@@ -175,11 +222,11 @@ export default function Staff() {
       </div>
 
       {showModal && (
-        <div className="modal-overlay" onClick={() => setShowModal(false)}>
+        <div className="modal-overlay" onClick={() => { setShowModal(false); setEditingStaff(null); }}>
           <div className="modal modal-lg" onClick={e => e.stopPropagation()}>
             <div className="modal-header">
-              <h3 className="modal-title">Add Staff Member</h3>
-              <button className="modal-close" onClick={() => setShowModal(false)}></button>
+              <h3 className="modal-title">{editingStaff ? 'Edit Staff Member' : 'Add Staff Member'}</h3>
+              <button className="modal-close" onClick={() => { setShowModal(false); setEditingStaff(null); }}></button>
             </div>
             <form onSubmit={handleSubmit}>
               <div className="modal-body">
@@ -197,7 +244,7 @@ export default function Staff() {
                 <div className="form-row">
                   <div className="form-group">
                     <label className="form-label">Email *</label>
-                    <input type="email" className="form-control" required value={form.email || ''} onChange={e => setForm({...form, email: e.target.value})} />
+                    <input type="email" className="form-control" required disabled={!!editingStaff && !isAdmin} value={form.email || ''} onChange={e => setForm({...form, email: e.target.value})} />
                   </div>
                   <div className="form-group">
                     <label className="form-label">Contact</label>
@@ -224,7 +271,7 @@ export default function Staff() {
                     </select>
                   </div>
                 </div>
-                {form.role === 'Doctor' && (
+                {!editingStaff && form.role === 'Doctor' && (
                   <div className="form-group">
                     <label className="form-label">SLMC License Number *</label>
                     <input className="form-control" required value={form.doctor_license_number} onChange={e => setForm({...form, doctor_license_number: e.target.value})} placeholder="e.g. SLMC-1234" />
@@ -246,9 +293,9 @@ export default function Staff() {
                 </div>
               </div>
               <div className="modal-footer">
-                <button type="button" className="btn btn-ghost" onClick={() => setShowModal(false)}>Cancel</button>
+                <button type="button" className="btn btn-ghost" onClick={() => { setShowModal(false); setEditingStaff(null); }}>Cancel</button>
                 <button type="submit" className="btn btn-primary" disabled={submitting}>
-                  {submitting ? <><span className="spinner" style={{ width: 14, height: 14, borderWidth: 2 }} /> Adding...</> : 'Add Staff'}
+                  {submitting ? <><span className="spinner" style={{ width: 14, height: 14, borderWidth: 2 }} /> Saving...</> : editingStaff ? 'Save Changes' : 'Add Staff'}
                 </button>
               </div>
             </form>

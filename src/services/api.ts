@@ -1,5 +1,4 @@
-import axios from 'axios';
-import { handleLocalRequest, LocalHttpError } from './localDb';
+import axios, { type AxiosResponse, type InternalAxiosRequestConfig } from 'axios';
 
 // ── Role & Type definitions ──────────────────────────────────────────────────
 export type UserRole = 'admin' | 'branch_manager' | 'doctor' | 'receptionist_cashier' | 'patient';
@@ -76,6 +75,9 @@ export interface Doctor {
   specialties?: Specialty[];
   specialty_ids?: number[];
 }
+
+export type DoctorCreateRequest = Pick<Doctor, 'staff_id' | 'doctor_name' | 'doctor_license_number'>;
+export type DoctorUpdateRequest = Partial<Pick<Doctor, 'doctor_name' | 'doctor_license_number'>>;
 
 export interface Specialty {
   specialty_id: number;
@@ -207,13 +209,17 @@ export interface Invoice {
   appointment_date?: string;
 }
 
+/** Money a patient paid towards an invoice (backend `patient_payment`). */
 export interface Payment {
   payment_id: number;
   invoice_id: number;
   amount: number;
-  method: string;
+  payment_method: string;
   payment_date: string;
-  received_by: string;
+  payment_type: string;
+  reference_number?: string | null;
+  received_by_name?: string | null;
+  patient_id?: number;
   patient_name?: string;
 }
 
@@ -302,61 +308,60 @@ const api = axios.create({
   headers: { 'Content-Type': 'application/json' },
 });
 
-let cachedCsrfToken = '';
+// ── CSRF protection ───────────────────────────────────────────────────────────
+// The backend requires an X-CSRF-Token header on every POST/PUT/PATCH/DELETE.
+// The token is tied to the logged-in user and expires after 2 hours, so it is
+// cached here, cleared on login/logout, and refetched once if it is rejected.
+const CSRF_METHODS = ['post', 'put', 'patch', 'delete'];
+let csrfToken: string | null = null;
+let csrfRequest: Promise<string> | null = null;
 
-api.interceptors.request.use(async (config) => {
-  const method = (config.method || '').toUpperCase();
-  if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(method)) {
-    if (!cachedCsrfToken) {
-      try {
-        const base = config.baseURL || 'http://localhost:8000/api';
-        const res = await axios.get(`${base}/auth/csrf`, { withCredentials: true });
-        cachedCsrfToken = res.data?.csrf_token || '';
-      } catch {
-        // Backend offline or unreachable
-      }
-    }
-    if (cachedCsrfToken) {
-      config.headers['X-CSRF-Token'] = cachedCsrfToken;
-    }
-  }
-  return config;
-});
-
-// ── Offline / not-yet-implemented endpoints → local data store ────────────────
-// The backend currently implements only auth. Any request that fails because
-// the server is unreachable, or because the endpoint does not exist yet
-// (404/405/501), is answered by the local store, which applies the same
-// role-based access rules the API is expected to enforce.
-const shouldUseLocalStore = (error: any): boolean => {
-  if (!error?.config) return false;
-  if (!error.response) return true; // network error: backend not running
-  const url: string = error.config.url || '';
-  if (url.startsWith('/auth/')) return false; // real auth answers are authoritative
-  return [404, 405, 501].includes(error.response.status);
+const clearCsrfToken = () => {
+  csrfToken = null;
+  csrfRequest = null;
 };
 
+const fetchCsrfToken = (): Promise<string> => {
+  if (csrfToken) return Promise.resolve(csrfToken);
+  if (!csrfRequest) {
+    const request: Promise<string> = api
+      .get<{ csrf_token: string }>('/auth/csrf', { timeout: 15000 })
+      .then((res: AxiosResponse<{ csrf_token: string }>) => {
+        csrfToken = res.data.csrf_token;
+        return res.data.csrf_token;
+      })
+      .finally(() => { csrfRequest = null; });
+    csrfRequest = request;
+    return request;
+  }
+  return csrfRequest;
+};
+
+const needsCsrf = (cfg: InternalAxiosRequestConfig): boolean =>
+  CSRF_METHODS.includes((cfg.method || 'get').toLowerCase()) &&
+  !(cfg.url || '').startsWith('/auth/') &&
+  !cfg.headers.has('X-CSRF-Token');
+
+const isCsrfRejection = (error: any): boolean =>
+  error?.response?.status === 403 &&
+  String(error.response.data?.detail || '').toLowerCase().includes('csrf');
+
+api.interceptors.request.use(async (cfg: InternalAxiosRequestConfig) => {
+  if (needsCsrf(cfg)) cfg.headers.set('X-CSRF-Token', await fetchCsrfToken());
+  return cfg;
+});
+
+// Expired or stale CSRF token: get a fresh one and retry the request once.
 api.interceptors.response.use(
   res => res,
   async (error) => {
-    if (!shouldUseLocalStore(error)) throw error;
-    const cfg = error.config;
-    let body: any = cfg.data;
-    if (typeof body === 'string') {
-      try { body = JSON.parse(body); } catch { body = {}; }
+    if (isCsrfRejection(error) && error.config && !error.config._csrfRetried) {
+      clearCsrfToken();
+      error.config._csrfRetried = true;
+      error.config.headers.delete('X-CSRF-Token');
+      return api.request(error.config);
     }
-    try {
-      const data = handleLocalRequest((cfg.method || 'get').toUpperCase(), cfg.url || '', cfg.params || {}, body || {});
-      return { data, status: 200, statusText: 'OK', headers: {}, config: cfg };
-    } catch (e) {
-      if (e instanceof LocalHttpError) {
-        const err: any = new Error(e.detail);
-        err.response = { status: e.status, data: { detail: e.detail } };
-        err.config = cfg;
-        throw err;
-      }
-      throw e;
-    }
+    throw error;
   }
 );
 
@@ -369,9 +374,21 @@ export const apiErrorMessage = (err: any, fallback = 'Something went wrong. Plea
 };
 
 // ── Auth Service ──────────────────────────────────────────────────────────────
+const isAuthUser = (value: unknown): value is AuthUser => {
+  if (!value || typeof value !== 'object') return false;
+  const user = value as Partial<AuthUser>;
+  const staffRoles: UserRole[] = ['admin', 'branch_manager', 'doctor', 'receptionist_cashier'];
+  return Number.isSafeInteger(user.user_id) && Number(user.user_id) > 0 && (
+    (user.user_type === 'patient' && user.role === 'patient') ||
+    (user.user_type === 'staff' && staffRoles.includes(user.role as UserRole))
+  );
+};
+
 export const authService = {
   login: async (credentials: { username: string; password: string }): Promise<LoginResponse> => {
-    const res = await api.post<LoginResponse>('/auth/login', credentials);
+    clearCsrfToken();
+    const res = await api.post<LoginResponse>('/auth/login', credentials, { timeout: 15000 });
+    if (!isAuthUser(res.data?.user)) throw new Error('Invalid sign-in response');
     return res.data;
   },
   register: async (data: RegisterRequest): Promise<LoginResponse> => {
@@ -379,15 +396,17 @@ export const authService = {
     return res.data;
   },
   getMe: async (): Promise<AuthUser> => {
-    const res = await api.get<AuthUser>('/auth/me');
+    const res = await api.get<AuthUser>('/auth/me', { timeout: 15000 });
+    if (!isAuthUser(res.data)) throw new Error('Invalid session response');
     return res.data;
   },
   logout: async (): Promise<{ message: string }> => {
+    clearCsrfToken();
     const res = await api.post<{ message: string }>('/auth/logout');
     return res.data;
   },
   getCsrfToken: async (): Promise<{ csrf_token: string }> => {
-    const res = await api.get<{ csrf_token: string }>('/auth/csrf');
+    const res = await api.get<{ csrf_token: string }>('/auth/csrf', { timeout: 15000 });
     return res.data;
   },
 };
@@ -424,17 +443,78 @@ export const staffService = {
   getAll: (params?: { branch_id?: number; role?: string }) => get<Staff[]>('/staff', params as Record<string, unknown>),
   getById: (id: number) => get<Staff>(`/staff/${id}`),
   create: (data: Partial<Staff>) => post<Staff>('/staff', data),
-  update: (id: number, data: Partial<Staff>) => put<Staff>(`/staff/${id}`, data),
+  update: async (id: number, data: Partial<Staff>) => {
+    const { csrf_token } = await authService.getCsrfToken();
+    if (typeof csrf_token !== 'string' || !csrf_token) throw new Error('Unable to authorize the staff update');
+    const res = await api.put<Staff>(`/staff/${id}`, data, {
+      headers: { 'X-CSRF-Token': csrf_token },
+      timeout: 15000,
+    });
+    return res.data;
+  },
   delete: (id: number) => del(`/staff/${id}`),
 };
 
 // ── Doctor Service ─────────────────────────────────────────────────────────────
+const readDoctor = (value: unknown): Doctor => {
+  const doc = value as Partial<Doctor> | null;
+  if (!doc || !Number.isSafeInteger(doc.doctor_id) || Number(doc.doctor_id) <= 0 ||
+      !Number.isSafeInteger(doc.staff_id) || Number(doc.staff_id) <= 0 ||
+      typeof doc.doctor_name !== 'string' || typeof doc.doctor_license_number !== 'string') {
+    throw new Error('Invalid doctor response');
+  }
+  if (doc.specialties !== undefined && (!Array.isArray(doc.specialties) || doc.specialties.some(s =>
+    !s || !Number.isSafeInteger(s.specialty_id) || s.specialty_id <= 0 || typeof s.specialty_name !== 'string'))) {
+    throw new Error('Invalid doctor specialties response');
+  }
+  return doc as Doctor;
+};
+
+const doctorWriteConfig = async () => {
+  const { csrf_token } = await authService.getCsrfToken();
+  if (typeof csrf_token !== 'string' || !csrf_token) throw new Error('Unable to authorize the doctor update');
+  return { headers: { 'X-CSRF-Token': csrf_token }, timeout: 15000 };
+};
+
 export const doctorService = {
-  getAll: (params?: { branch_id?: number; specialty_id?: number; search?: string }) =>
-    get<Doctor[]>('/doctors', params as Record<string, unknown>),
-  getById: (id: number) => get<Doctor>(`/doctors/${id}`),
-  create: (data: Partial<Doctor>) => post<Doctor>('/doctors', data),
-  update: (id: number, data: Partial<Doctor>) => put<Doctor>(`/doctors/${id}`, data),
+  getAll: async (params?: { branch_id?: number; specialty_id?: number; search?: string }): Promise<Doctor[]> => {
+    const doctors: Doctor[] = [];
+    const seen = new Set<number>();
+    // The backend caps pages at 100; do not silently omit the rest of the directory.
+    for (let skip = 0; ; skip += 100) {
+      const res = await api.get<Doctor[]>('/doctors', { params: { ...params, skip, limit: 100 }, timeout: 15000 });
+      if (!Array.isArray(res.data)) throw new Error('Invalid doctor directory response');
+      const page = res.data.map(readDoctor);
+      for (const doc of page) {
+        if (!Number.isSafeInteger(doc.branch_id) || Number(doc.branch_id) <= 0 ||
+            typeof doc.branch_name !== 'string' || !Array.isArray(doc.specialties)) {
+          throw new Error('Doctor directory response is missing branch or specialty details');
+        }
+        if (seen.has(doc.doctor_id)) throw new Error('Doctor directory changed while loading. Please reload.');
+        seen.add(doc.doctor_id);
+        doctors.push(doc);
+      }
+      if (page.length < 100) return doctors;
+    }
+  },
+  getById: async (id: number): Promise<Doctor> => {
+    const res = await api.get<Doctor>(`/doctors/${id}`, { timeout: 15000 });
+    const doctor = readDoctor(res.data);
+    if (doctor.doctor_id !== id) throw new Error('Doctor response does not match the requested profile');
+    return doctor;
+  },
+  create: async (data: DoctorCreateRequest): Promise<Doctor> => {
+    const res = await api.post<Doctor>('/doctors', data, await doctorWriteConfig());
+    const doctor = readDoctor(res.data);
+    if (doctor.staff_id !== data.staff_id) throw new Error('Doctor response does not match the selected staff record');
+    return doctor;
+  },
+  update: async (id: number, data: DoctorUpdateRequest): Promise<Doctor> => {
+    const res = await api.put<Doctor>(`/doctors/${id}`, data, await doctorWriteConfig());
+    const doctor = readDoctor(res.data);
+    if (doctor.doctor_id !== id) throw new Error('Doctor response does not match the updated profile');
+    return doctor;
+  },
   delete: (id: number) => del(`/doctors/${id}`),
 };
 
@@ -467,25 +547,37 @@ export const patientService = {
   addEmergencyContact: (id: number, data: Partial<EmergencyContact>) =>
     post<EmergencyContact>(`/patients/${id}/emergency-contacts`, data),
   deleteEmergencyContact: (contactId: number) => del(`/emergency-contacts/${contactId}`),
-  getInsurancePolicies: (id: number) => get<InsurancePolicy[]>(`/patients/${id}/insurance-policies`),
+  getInsurancePolicies: (id: number) => get<InsurancePolicy[]>(`/patients/${id}/insurance`),
 };
 
 // ── Insurance Service ─────────────────────────────────────────────────────────
 export const insuranceService = {
   getProviders: () => get<InsuranceProvider[]>('/insurance/providers'),
   createProvider: (data: Partial<InsuranceProvider>) => post<InsuranceProvider>('/insurance/providers', data),
-  getPolicies: (params?: { patient_id?: number; status?: string }) =>
-    get<InsurancePolicy[]>('/insurance/policies', params as Record<string, unknown>),
+  // The backend list endpoints take no filters (they are already scoped to the
+  // user's branch/patient), so optional filters are applied here.
+  getPolicies: async (params?: { patient_id?: number; status?: string }) => {
+    const policies = await get<InsurancePolicy[]>('/insurance/policies');
+    return policies.filter(p =>
+      (params?.patient_id === undefined || p.patient_id === params.patient_id) &&
+      (params?.status === undefined || p.status === params.status));
+  },
   getPolicyById: (id: number) => get<InsurancePolicy>(`/insurance/policies/${id}`),
   createPolicy: (data: Partial<InsurancePolicy>) => post<InsurancePolicy>('/insurance/policies', data),
   updatePolicy: (id: number, data: Partial<InsurancePolicy>) =>
     put<InsurancePolicy>(`/insurance/policies/${id}`, data),
-  getCoverageByPolicy: (policyId: number) =>
-    get<InsuranceCoverage[]>(`/insurance/policies/${policyId}/coverages`),
+  getCoverageByPolicy: async (policyId: number) => {
+    const coverages = await get<InsuranceCoverage[]>('/insurance/coverage');
+    return coverages.filter(c => c.policy_id === policyId);
+  },
   addCoverage: (policyId: number, data: Partial<InsuranceCoverage>) =>
-    post<InsuranceCoverage>(`/insurance/policies/${policyId}/coverages`, data),
-  getClaims: (params?: { status?: string; invoice_id?: number }) =>
-    get<InsuranceClaim[]>('/insurance/claims', params as Record<string, unknown>),
+    post<InsuranceCoverage>('/insurance/coverage', { ...data, policy_id: policyId }),
+  getClaims: async (params?: { status?: string; invoice_id?: number }) => {
+    const claims = await get<InsuranceClaim[]>('/insurance/claims');
+    return claims.filter(c =>
+      (params?.invoice_id === undefined || c.invoice_id === params.invoice_id) &&
+      (params?.status === undefined || c.status === params.status));
+  },
   getClaimById: (id: number) => get<InsuranceClaim>(`/insurance/claims/${id}`),
   createClaim: (data: Partial<InsuranceClaim>) => post<InsuranceClaim>('/insurance/claims', data),
   updateClaim: (id: number, data: Partial<InsuranceClaim>) =>
@@ -524,17 +616,26 @@ export const invoiceService = {
     get<Invoice[]>('/invoices', params as Record<string, unknown>),
   getById: (id: number) => get<Invoice>(`/invoices/${id}`),
   /** Generate the invoice for a completed appointment from its recorded treatments. */
-  generate: (appointmentId: number) => post<Invoice>('/invoices', { appointment_id: appointmentId }),
+  generate: (appointmentId: number) => post<Invoice>('/invoices/generate', { appointment_id: appointmentId }),
   update: (id: number, data: Partial<Invoice>) => put<Invoice>(`/invoices/${id}`, data),
   getItems: (id: number) => get<InvoiceItem[]>(`/invoices/${id}/items`),
   addItem: (id: number, data: Partial<InvoiceItem>) =>
     post<InvoiceItem>(`/invoices/${id}/items`, data),
-  makePayment: (id: number, data: { amount: number; method?: string }) =>
-    post<Invoice>(`/invoices/${id}/payments`, data),
-  getPayments: (id: number) => get<Payment[]>(`/invoices/${id}/payments`),
-  getAllPayments: () => get<Payment[]>('/payments'),
-  getDoctorPayments: (params?: { doctor_id?: number }) =>
-    get<DoctorPayment[]>('/doctor-payments', params as Record<string, unknown>),
+  /** Record a patient payment, then return the invoice with its new balance/status. */
+  makePayment: async (id: number, data: { amount: number; method?: string; reference?: string }) => {
+    await post<Payment>(`/invoices/${id}/patient-payments`, {
+      amount: data.amount, payment_method: data.method || 'Cash', reference_number: data.reference || null,
+    });
+    return get<Invoice>(`/invoices/${id}`);
+  },
+  getPayments: (id: number) => get<Payment[]>(`/invoices/${id}/patient-payments`),
+  getAllPayments: () => get<Payment[]>('/patient-payments'),
+  /** Doctor compensation. The API names the id/amount `payment_id`/`amount`; map them to this model. */
+  getDoctorPayments: async (params?: { doctor_id?: number }) => {
+    const rows = await get<Array<Omit<DoctorPayment, 'doctor_payment_id' | 'doctor_payment'> & { payment_id: number; amount: number }>>(
+      '/doctor-payments', params as Record<string, unknown>);
+    return rows.map(({ payment_id, amount, ...rest }): DoctorPayment => ({ ...rest, doctor_payment_id: payment_id, doctor_payment: amount }));
+  },
 };
 
 // ── Reports Service ───────────────────────────────────────────────────────────

@@ -5,7 +5,7 @@ import {
   Appointment, AppointmentTreatment, ConsultationNote, Invoice, Treatment,
 } from '../services/api';
 import { useAuth } from '../auth/AuthContext';
-import { localDate } from '../services/mockData';
+import { localDate } from '../utils/date';
 import { statusBadge } from './Appointments';
 
 export default function AppointmentDetails() {
@@ -13,6 +13,9 @@ export default function AppointmentDetails() {
   const navigate = useNavigate();
   const { isAdmin, isManager, isCashier, isDoctor, isPatient, user } = useAuth();
   const isStaff = isAdmin || isManager || isCashier;
+  const canBill = isAdmin || isCashier;
+  // Consultation notes are clinical records: the backend serves them only to admin, manager and doctors.
+  const canViewNotes = isAdmin || isManager || isDoctor;
 
   const [appt, setAppt] = useState<Appointment | null>(null);
   const [loadError, setLoadError] = useState('');
@@ -39,7 +42,7 @@ export default function AppointmentDetails() {
       const a = await appointmentService.getById(apptId);
       setAppt(a);
       const [n, t, cat, invs] = await Promise.allSettled([
-        appointmentService.getNotes(apptId),
+        canViewNotes ? appointmentService.getNotes(apptId) : Promise.resolve([]),
         appointmentService.getTreatments(apptId),
         treatmentService.getAll(),
         isDoctor ? Promise.resolve([]) : invoiceService.getAll({ appointment_id: apptId }),
@@ -126,7 +129,9 @@ export default function AppointmentDetails() {
   const isTreatingDoctor = isDoctor && appt.doctor_id === user?.doctor_id;
   const canManage = isStaff || (isPatient && appt.patient_id === user?.patient_id);
   const canComplete = isScheduled && appt.appointment_date <= today && (isStaff || isTreatingDoctor);
-  const canRecordTreatments = isCompleted && !invoice && (isAdmin || isTreatingDoctor);
+  // Treatments are recorded during the visit (before or after completion) until it is billed;
+  // the database only lets a visit be completed once a treatment or note exists.
+  const canRecordTreatments = appt.status !== 'Cancelled' && !invoice && (isAdmin || isTreatingDoctor);
   const canAddNotes = appt.status !== 'Cancelled' && (isTreatingDoctor || isAdmin);
   const treatmentsTotal = recorded.reduce((s, t) => s + Number(t.unit_price || 0) * t.quantity, 0);
 
@@ -151,7 +156,7 @@ export default function AppointmentDetails() {
                 <span className="badge badge-info">{appt.appointment_type}</span>
                 {canComplete && (
                   <button className="btn btn-primary btn-sm" disabled={busy}
-                    onClick={() => confirm('Mark this appointment as completed?') && run(() => appointmentService.complete(apptId), 'Appointment marked as completed. Record the treatments given below.')}>
+                    onClick={() => confirm('Mark this appointment as completed?') && run(() => appointmentService.complete(apptId), 'Appointment marked as completed.')}>
                     Mark Completed
                   </button>
                 )}
@@ -224,7 +229,7 @@ export default function AppointmentDetails() {
             <div className="card-body">
               {!isCompleted && (
                 <p className="text-gray-400 text-sm mb-3">
-                  {appt.status === 'Cancelled' ? 'This appointment was cancelled.' : 'Treatments are recorded once the appointment is marked as completed.'}
+                  {appt.status === 'Cancelled' ? 'This appointment was cancelled.' : 'Record the treatments given (or add a consultation note), then mark the appointment as completed.'}
                 </p>
               )}
               {recorded.length > 0 && (
@@ -277,14 +282,14 @@ export default function AppointmentDetails() {
                   <button type="submit" className="btn btn-primary" disabled={busy || !txForm.treatment_id}>Add</button>
                 </form>
               )}
-              {isCompleted && invoice && (
+              {invoice && (
                 <p className="text-xs text-gray-400">Treatments are locked because the invoice has been generated.</p>
               )}
             </div>
           </div>
 
           {/* Consultation Notes */}
-          <div className="card">
+          {canViewNotes && <div className="card">
             <div className="card-header">
               <h3 className="card-title">Consultation Notes</h3>
               <span className="badge badge-gray">{notes.length}</span>
@@ -311,7 +316,7 @@ export default function AppointmentDetails() {
                 </div>
               )}
             </div>
-          </div>
+          </div>}
         </div>
 
         {/* Billing sidebar (hidden from doctors) */}
@@ -349,7 +354,7 @@ export default function AppointmentDetails() {
                   <p className="text-gray-400 text-sm mb-3">
                     {isCompleted ? 'No invoice generated yet.' : 'An invoice is generated after the appointment is completed.'}
                   </p>
-                  {isStaff && isCompleted && (
+                  {canBill && isCompleted && (
                     <button className="btn btn-primary" disabled={busy}
                       onClick={() => run(() => invoiceService.generate(apptId), 'Invoice generated from the recorded treatments.')}>
                       Generate Invoice

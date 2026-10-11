@@ -146,7 +146,7 @@ export default function MyProfile() {
         <h2 style={{ fontSize: 22, fontWeight: 600, color: 'var(--gray-900)', margin: 0 }}>My Profile</h2>
         <p style={{ fontSize: 13, color: 'var(--gray-500)', marginTop: 4 }}>
           {isDoctor
-            ? 'Manage your professional profile. Changes are shown to patients and staff across the whole system.'
+            ? 'View your professional profile. An administrator manages doctor name and license changes.'
             : 'Manage your contact details, emergency contacts and view your insurance.'}
         </p>
       </div>
@@ -171,7 +171,7 @@ export default function MyProfile() {
             </div>
             <p style={{ fontSize: 13, color: 'var(--gray-500)', marginTop: 4 }}>@{user?.username}</p>
           </div>
-          {!editing && <button className="btn btn-primary" onClick={startEditing}>Edit Profile</button>}
+          {!editing && isPatient && <button className="btn btn-primary" onClick={startEditing}>Edit Profile</button>}
         </div>
 
         {doctor && !editing && (

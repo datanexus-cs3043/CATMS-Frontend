@@ -3,29 +3,45 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { doctorService, appointmentService, apiErrorMessage, Doctor, Appointment } from '../services/api';
 import { useAuth } from '../auth/AuthContext';
 import { statusBadge } from './Appointments';
+import DoctorProfileForm from '../components/DoctorProfileForm';
 
 export default function DoctorDetails() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { isPatient } = useAuth();
+  const { user, isPatient } = useAuth();
   const [doctor, setDoctor] = useState<Doctor | null>(null);
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(true);
+  const [appointmentsLoading, setAppointmentsLoading] = useState(true);
+  const [appointmentsError, setAppointmentsError] = useState('');
+  const [editing, setEditing] = useState(false);
 
   useEffect(() => {
-    if (!id) return;
-    const load = async () => {
-      setIsLoading(true);
-      try {
-        setDoctor(await doctorService.getById(Number(id)));
-        // Patients see the public profile plus only their own visits with this doctor.
-        setAppointments(await appointmentService.getAll({ doctor_id: Number(id) }));
-      } catch (err) {
-        setError(apiErrorMessage(err, 'Doctor not found.'));
-      } finally { setIsLoading(false); }
-    };
-    load();
+    let cancelled = false;
+    setDoctor(null);
+    setError('');
+    setEditing(false);
+    setAppointments([]);
+    setAppointmentsError('');
+    setIsLoading(true);
+    setAppointmentsLoading(true);
+    if (!Number.isSafeInteger(Number(id)) || Number(id) <= 0) {
+      setError('Invalid doctor ID.');
+      setIsLoading(false);
+      setAppointmentsLoading(false);
+      return;
+    }
+    doctorService.getById(Number(id))
+      .then(data => { if (!cancelled) setDoctor(data); })
+      .catch(err => { if (!cancelled) setError(apiErrorMessage(err, 'Could not load the doctor profile.')); })
+      .finally(() => { if (!cancelled) setIsLoading(false); });
+    // Failure to load visits must not hide a successfully loaded doctor profile.
+    appointmentService.getAll({ doctor_id: Number(id) })
+      .then(data => { if (!cancelled) setAppointments(data); })
+      .catch(err => { if (!cancelled) setAppointmentsError(apiErrorMessage(err, 'Could not load appointment history.')); })
+      .finally(() => { if (!cancelled) setAppointmentsLoading(false); });
+    return () => { cancelled = true; };
   }, [id]);
 
   if (isLoading) return (
@@ -76,6 +92,7 @@ export default function DoctorDetails() {
                 >
                   Book Appointment
                 </button>
+                {user?.role === 'admin' && <button className="btn btn-secondary" onClick={() => setEditing(true)}>Edit doctor profile</button>}
               </div>
 
               {doctor.bio && <p className="mt-4 text-base text-gray-600 leading-[1.6]">{doctor.bio}</p>}
@@ -91,12 +108,26 @@ export default function DoctorDetails() {
         </div>
       </div>
 
+      {editing && user?.role === 'admin' && <div className="modal-overlay">
+        <div className="modal" role="dialog" aria-modal="true" aria-labelledby="edit-doctor-title">
+          <div className="modal-header"><h3 id="edit-doctor-title">Edit doctor profile</h3></div>
+          <div className="modal-body">
+            <DoctorProfileForm doctor={doctor} onCancel={() => setEditing(false)} onSaved={saved => {
+              setDoctor({ ...doctor, ...saved });
+              setEditing(false);
+            }} />
+          </div>
+        </div>
+      </div>}
+
       <div className="card">
         <div className="card-header">
           <h3 className="card-title">{isPatient ? 'My Visits With This Doctor' : 'Appointment History'}</h3>
-          <span className="badge badge-primary">{appointments.length} total</span>
+          {!appointmentsLoading && !appointmentsError && <span className="badge badge-primary">{appointments.length} shown</span>}
         </div>
-        {appointments.length === 0 ? (
+        {appointmentsLoading ? <p role="status" className="card-body">Loading appointment history…</p>
+        : appointmentsError ? <div className="alert alert-error" role="alert">{appointmentsError}</div>
+        : appointments.length === 0 ? (
           <div className="empty-state">
             <p className="empty-state-title">No appointments</p>
             <p className="empty-state-desc">{isPatient ? 'You have not visited this doctor yet.' : 'No appointment history for this doctor.'}</p>
@@ -110,9 +141,9 @@ export default function DoctorDetails() {
                   <tr className="cursor-pointer" key={a.appointment_id} onClick={() => navigate(`/appointments/${a.appointment_id}`)}>
                     <td>{a.appointment_date}</td>
                     <td className="text-gray-500">{a.start_time?.slice(0, 5)} – {a.end_time?.slice(0, 5)}</td>
-                    {!isPatient && <td>{a.patient_name}</td>}
+                    {!isPatient && <td>{a.patient_name || `Patient #${a.patient_id}`}</td>}
                     <td><span className="badge badge-info">{a.appointment_type}</span></td>
-                    <td>{statusBadge(a.status)}</td>
+                    <td>{a.status ? statusBadge(a.status) : 'Not provided'}</td>
                     <td><button className="btn btn-secondary btn-sm">View</button></td>
                   </tr>
                 ))}

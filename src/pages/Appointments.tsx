@@ -5,7 +5,7 @@ import {
   apiErrorMessage, Appointment, Patient, Doctor, Branch, Treatment
 } from '../services/api';
 import { useAuth } from '../auth/AuthContext';
-import { localDate } from '../services/mockData';
+import { localDate } from '../utils/date';
 
 const typeBadge = (type: string) => {
   if (type === 'Emergency' || type === 'Walk-in') return <span className="badge badge-warning">{type}</span>;
