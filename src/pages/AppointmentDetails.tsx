@@ -16,7 +16,7 @@ export default function AppointmentDetails() {
   const { isAdmin, isManager, isCashier, isDoctor, isPatient, user } = useAuth();
   const { confirmAction } = useDialog();
   const isStaff = isAdmin || isManager || isCashier;
-  const canBill = isAdmin || isCashier;
+  const canBill = isAdmin || isCashier || isManager;
   // Consultation notes are clinical records: the backend serves them only to admin, manager and doctors.
   const canViewNotes = isAdmin || isManager || isDoctor;
 
