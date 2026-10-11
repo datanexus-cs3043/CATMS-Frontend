@@ -11,10 +11,11 @@ import { statusBadge } from './Appointments';
 export default function AppointmentDetails() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { isAdmin, isCashier, isDoctor, isPatient, user } = useAuth();
-  const isStaff = isAdmin || isCashier;
+  const { isAdmin, isManager, isCashier, isDoctor, isPatient, user } = useAuth();
+  const isStaff = isAdmin || isManager || isCashier;
+  const canBill = isAdmin || isCashier;
   // Consultation notes are clinical records: the backend serves them only to admin, manager and doctors.
-  const canViewNotes = !isCashier && !isPatient;
+  const canViewNotes = isAdmin || isManager || isDoctor;
 
   const [appt, setAppt] = useState<Appointment | null>(null);
   const [loadError, setLoadError] = useState('');
@@ -130,7 +131,7 @@ export default function AppointmentDetails() {
   const canComplete = isScheduled && appt.appointment_date <= today && (isStaff || isTreatingDoctor);
   // Treatments are recorded during the visit (before or after completion) until it is billed;
   // the database only lets a visit be completed once a treatment or note exists.
-  const canRecordTreatments = appt.status !== 'Cancelled' && !invoice && (isStaff || isTreatingDoctor);
+  const canRecordTreatments = appt.status !== 'Cancelled' && !invoice && (isAdmin || isTreatingDoctor);
   const canAddNotes = appt.status !== 'Cancelled' && (isTreatingDoctor || isAdmin);
   const treatmentsTotal = recorded.reduce((s, t) => s + Number(t.unit_price || 0) * t.quantity, 0);
 
@@ -353,7 +354,7 @@ export default function AppointmentDetails() {
                   <p className="text-gray-400 text-sm mb-3">
                     {isCompleted ? 'No invoice generated yet.' : 'An invoice is generated after the appointment is completed.'}
                   </p>
-                  {isStaff && isCompleted && (
+                  {canBill && isCompleted && (
                     <button className="btn btn-primary" disabled={busy}
                       onClick={() => run(() => invoiceService.generate(apptId), 'Invoice generated from the recorded treatments.')}>
                       Generate Invoice

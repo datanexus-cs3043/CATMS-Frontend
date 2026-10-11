@@ -641,15 +641,15 @@ export const invoiceService = {
 // ── Reports Service ───────────────────────────────────────────────────────────
 export const reportsService = {
   getBranchAppointmentSummary: (params?: { date?: string; branch_id?: number }) =>
-    get<BranchAppointmentSummary[]>('/reports/branch-appointment-summary', params as Record<string, unknown>),
+    get<BranchAppointmentSummary[]>('/reports/appointments-summary', params as Record<string, unknown>),
   getDoctorRevenue: (params?: { from_date?: string; to_date?: string }) =>
     get<DoctorRevenueReport[]>('/reports/doctor-revenue', params as Record<string, unknown>),
   getOutstandingPatients: () =>
-    get<OutstandingPatient[]>('/reports/outstanding-patients'),
+    get<OutstandingPatient[]>('/reports/outstanding-balances'),
   getTreatmentCounts: (params?: { from_date?: string; to_date?: string }) =>
-    get<TreatmentCountReport[]>('/reports/treatment-counts', params as Record<string, unknown>),
+    get<TreatmentCountReport[]>('/reports/treatments-by-category', params as Record<string, unknown>),
   getInsuranceSummary: (params?: { from_date?: string; to_date?: string }) =>
-    get<InsuranceSummary>('/reports/insurance-summary', params as Record<string, unknown>),
+    get<InsuranceSummary>('/reports/insurance-vs-out-of-pocket', params as Record<string, unknown>),
 };
 
 export default api;

@@ -11,8 +11,8 @@ import { useAuth } from '../auth/AuthContext';
 export default function PatientDetails() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { isAdmin, isCashier, isDoctor } = useAuth();
-  const canEdit = isAdmin || isCashier;
+  const { isAdmin, isManager, isCashier, isDoctor } = useAuth();
+  const canEdit = isAdmin || isManager || isCashier;
 
   const [patient, setPatient] = useState<Patient | null>(null);
   const [appointments, setAppointments] = useState<Appointment[]>([]);
@@ -220,7 +220,7 @@ export default function PatientDetails() {
             <div className="empty-state">
               <p className="empty-state-title">No insurance policies</p>
               <p className="empty-state-desc">Patient has no active insurance policies.</p>
-              {canEdit && <button className="btn btn-primary" onClick={() => navigate('/insurance')}>Add Policy</button>}
+              {(isAdmin || isCashier) && <button className="btn btn-primary" onClick={() => navigate('/insurance')}>Add Policy</button>}
             </div>
           ) : (
             <div className="table-container">

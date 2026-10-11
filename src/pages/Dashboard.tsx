@@ -57,7 +57,7 @@ const ACTIONS: Action[] = [
   { label: 'Book an appointment', desc: 'Schedule a patient with a doctor', path: '/appointments?new=1', roles: ['admin', 'branch_manager', 'receptionist_cashier'] },
   { label: 'Register a walk-in', desc: 'Emergency or same-day visit, no prior booking', path: '/appointments?walkin=1', roles: ['admin', 'branch_manager', 'receptionist_cashier'] },
   { label: 'Register a patient', desc: 'New record, shared across branches', path: '/patients?new=1', roles: ['admin', 'branch_manager', 'receptionist_cashier'] },
-  { label: 'Create an invoice', desc: 'Bill a completed appointment', path: '/invoices?new=1', roles: ['admin', 'branch_manager', 'receptionist_cashier'] },
+  { label: 'Create an invoice', desc: 'Bill a completed appointment', path: '/invoices?new=1', roles: ['admin', 'receptionist_cashier'] },
   { label: 'Review insurance claims', desc: 'Approve or reject pending claims', path: '/insurance', roles: ['admin', 'branch_manager', 'receptionist_cashier'] },
   { label: 'Management reports', desc: 'Revenue, dues, treatments, coverage', path: '/reports', roles: ['admin', 'branch_manager'] },
   { label: 'Book an appointment', desc: 'Choose a doctor and a time that suits you', path: '/my-appointments?book=1', roles: ['patient'] },
@@ -115,7 +115,7 @@ const getActionIcon = (label: string) => {
 };
 
 export default function Dashboard() {
-  const { user, isAdmin, isCashier, isDoctor, isPatient } = useAuth();
+  const { user, isAdmin, isManager, isCashier, isDoctor, isPatient } = useAuth();
   const navigate = useNavigate();
   const [stats, setStats] = useState<DashStats>({ totalPatients: 0, totalDoctors: 0, todayAppointments: 0, pendingInvoices: 0, upcoming: 0, outstanding: 0 });
   const [appointments, setAppointments] = useState<Appointment[]>([]);
@@ -123,7 +123,7 @@ export default function Dashboard() {
   const [isLoading, setIsLoading] = useState(true);
 
   const today = localDate(0);
-  const staffView = isAdmin || isCashier;
+  const staffView = isAdmin || isManager || isCashier;
   const personalView = isDoctor || isPatient;
   const firstName = user?.first_name || user?.username || '';
 
