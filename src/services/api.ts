@@ -667,16 +667,16 @@ export const invoiceService = {
 
 // ── Reports Service ───────────────────────────────────────────────────────────
 export const reportsService = {
-  getBranchAppointmentSummary: (params?: { date?: string; branch_id?: number }) =>
+  getBranchAppointmentSummary: (params?: { date?: string; from_date?: string; to_date?: string; branch_id?: number }) =>
     get<BranchAppointmentSummary[]>('/reports/appointments-summary', params as Record<string, unknown>),
-  getDoctorRevenue: (params?: { from_date?: string; to_date?: string }) =>
+  getDoctorRevenue: (params?: { from_date?: string; to_date?: string; branch_id?: number }) =>
     get<DoctorRevenueReport[]>('/reports/doctor-revenue', params as Record<string, unknown>),
-  getOutstandingPatients: () =>
-    get<OutstandingPatient[]>('/reports/outstanding-balances'),
-  getTreatmentCounts: (params?: { from_date?: string; to_date?: string }) =>
+  getOutstandingPatients: (params?: { branch_id?: number }) =>
+    get<OutstandingPatient[]>('/reports/outstanding-balances', params as Record<string, unknown>),
+  getTreatmentCounts: (params?: { from_date?: string; to_date?: string; branch_id?: number }) =>
     get<TreatmentCountReport[]>('/reports/treatments-by-category', params as Record<string, unknown>),
-  getInsuranceSummary: (params?: { from_date?: string; to_date?: string }) =>
-    get<InsuranceSummary>('/reports/insurance-vs-out-of-pocket', params as Record<string, unknown>),
+  getInsuranceSummary: () =>
+    get<InsuranceSummary>('/reports/insurance-vs-out-of-pocket'),
 };
 
 export default api;
