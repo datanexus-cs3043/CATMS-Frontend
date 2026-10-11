@@ -121,6 +121,13 @@ export const Sidebar: React.FC<{ open: boolean; onClose: () => void }> = ({ open
         </nav>
 
         <div className="sidebar-footer">
+          <NavLink
+            to="/change-password"
+            className={`nav-link${isActive('/change-password') ? ' active' : ''}`}
+            onClick={onClose}
+          >
+            Change Password
+          </NavLink>
           <button className="btn btn-ghost btn-sm w-full" onClick={() => { logout(); navigate('/login'); }}>
             Sign out
           </button>
