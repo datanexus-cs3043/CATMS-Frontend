@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   reportsService,
   BranchAppointmentSummary,
@@ -6,6 +6,7 @@ import {
   OutstandingPatient,
   TreatmentCountReport,
   InsuranceSummary,
+  apiErrorMessage,
 } from '../services/api';
 
 type ReportType = 'branch' | 'doctor_revenue' | 'outstanding' | 'treatment' | 'insurance';
@@ -23,41 +24,63 @@ export default function Reports() {
   const [dateFilter, setDateFilter] = useState({ from: '', to: '', date: '' });
 
   const [error, setError] = useState('');
+  const requestVersion = useRef(0);
 
   const loadReport = async (type: ReportType, filter = dateFilter) => {
+    const version = ++requestVersion.current;
+    const isCurrent = () => requestVersion.current === version;
+    if (type !== 'branch' && filter.from && filter.to && filter.from > filter.to) {
+      setError('From date must not be after to date.');
+      setIsLoading(false);
+      return;
+    }
     setIsLoading(true);
     setError('');
     try {
+      const period = { from_date: filter.from || undefined, to_date: filter.to || undefined };
       switch (type) {
-        case 'branch':
-          setBranchData(await reportsService.getBranchAppointmentSummary({ date: filter.date || undefined }));
+        case 'branch': {
+          const data = await reportsService.getBranchAppointmentSummary({ date: filter.date || undefined });
+          if (isCurrent()) setBranchData(data);
           break;
-        case 'doctor_revenue':
-          setDoctorRevData(await reportsService.getDoctorRevenue({ from_date: filter.from || undefined, to_date: filter.to || undefined }));
+        }
+        case 'doctor_revenue': {
+          const data = await reportsService.getDoctorRevenue(period);
+          if (isCurrent()) setDoctorRevData(data);
           break;
-        case 'outstanding':
-          setOutstandingData(await reportsService.getOutstandingPatients());
+        }
+        case 'outstanding': {
+          const data = await reportsService.getOutstandingPatients(period);
+          if (isCurrent()) setOutstandingData(data);
           break;
-        case 'treatment':
-          setTreatmentData(await reportsService.getTreatmentCounts({ from_date: filter.from || undefined, to_date: filter.to || undefined }));
+        }
+        case 'treatment': {
+          const data = await reportsService.getTreatmentCounts(period);
+          if (isCurrent()) setTreatmentData(data);
           break;
-        case 'insurance':
-          setInsuranceData(await reportsService.getInsuranceSummary({ from_date: filter.from || undefined, to_date: filter.to || undefined }));
+        }
+        case 'insurance': {
+          const data = await reportsService.getInsuranceSummary(period);
+          if (isCurrent()) setInsuranceData(data);
           break;
+        }
       }
-    } catch (err: any) {
-      setError(err?.response?.data?.detail || 'Could not load the report.');
-    } finally { setIsLoading(false); }
+    } catch (err) {
+      if (isCurrent()) setError(apiErrorMessage(err, 'Could not load the report.'));
+    } finally { if (isCurrent()) setIsLoading(false); }
   };
 
-  useEffect(() => { loadReport(activeReport); }, [activeReport]);
+  useEffect(() => {
+    void loadReport(activeReport);
+    return () => { requestVersion.current++; };
+  }, [activeReport]);
 
   const reports = [
     { key: 'branch' as const, label: 'Branch Appointment Summary', desc: 'Daily appointments per branch by status' },
     { key: 'doctor_revenue' as const, label: 'Doctor Revenue', desc: 'Revenue generated per doctor' },
     { key: 'outstanding' as const, label: 'Outstanding Balances', desc: 'Patients with unpaid invoices' },
     { key: 'treatment' as const, label: 'Treatment Counts', desc: 'Number of treatments by category' },
-    { key: 'insurance' as const, label: 'Insurance vs Out-of-Pocket', desc: 'Insurance coverage analysis' },
+    { key: 'insurance' as const, label: 'Insurance vs Out-of-Pocket', desc: 'Claim approvals, recorded payments and balances' },
   ];
 
   return (
@@ -114,6 +137,9 @@ export default function Reports() {
                   Clear
                 </button>
               </div>
+              <p style={{ margin: '12px 0 0', fontSize: 13, color: 'var(--gray-600)' }}>
+                {activeReport === 'branch' ? 'Dates refer to appointment days.' : activeReport === 'treatment' ? 'Dates refer to completed appointment days.' : 'Dates refer to invoice issue dates; payments and balances reflect their current recorded values.'}
+              </p>
             </div>
           </div>
 
@@ -122,7 +148,7 @@ export default function Reports() {
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
               {[1,2,3].map(i => <div key={i} className="skeleton" style={{ height: 60, borderRadius: 'var(--radius)' }} />)}
             </div>
-          ) : (
+          ) : !error && (
             <>
               {/* Branch Appointment Summary */}
               {activeReport === 'branch' && (
@@ -185,7 +211,7 @@ export default function Reports() {
                         <thead><tr><th>Doctor</th><th>Branch</th><th>Invoiced Visits</th><th>Total Billed</th><th>Collected</th><th>Avg per Visit</th></tr></thead>
                         <tbody>
                           {doctorRevData.map(d => (
-                            <tr key={d.doctor_id}>
+                            <tr key={`${d.doctor_id}-${d.branch_name}`}>
                               <td style={{ fontWeight: 600 }}>{d.doctor_name}</td>
                               <td>{d.branch_name}</td>
                               <td style={{ textAlign: 'center' }}>{d.appointment_count}</td>
@@ -212,8 +238,8 @@ export default function Reports() {
                     <div className="empty-state">
                       <div className="empty-state-icon" style={{ background: 'var(--success-light)', color: 'var(--success)' }}>
                       </div>
-                      <p className="empty-state-title" style={{ color: 'var(--success)' }}>No outstanding balances! </p>
-                      <p className="empty-state-desc">All patients are up to date with their payments.</p>
+                      <p className="empty-state-title" style={{ color: 'var(--success)' }}>No outstanding balances in this selection</p>
+                      <p className="empty-state-desc">No unpaid invoices match the applied date and access scope.</p>
                     </div>
                   ) : (
                     <div className="table-container">
@@ -289,11 +315,11 @@ export default function Reports() {
                     <>
                       <div className="stats-grid" style={{ marginBottom: 20 }}>
                         {[
-                          { label: 'Total Billed', value: `Rs. ${Number(insuranceData.total_billed ?? 0).toLocaleString()}`, color: '#3f89cc', suffix: '' },
-                          { label: 'Total Claims', value: insuranceData.total_claims, color: '#155a96', suffix: '' },
-                          { label: 'Insurance Approved', value: `Rs. ${Number(insuranceData.approved_amount).toLocaleString()}`, color: '#1d6fb8', suffix: '' },
-                          { label: 'Out-of-Pocket', value: `Rs. ${Number(insuranceData.out_of_pocket).toLocaleString()}`, color: '#b86e0c', suffix: '' },
-                          { label: 'Pending Claims', value: `Rs. ${Number(insuranceData.pending_amount).toLocaleString()}`, color: '#c2372f', suffix: '' },
+                          { label: 'Total Billed', value: `Rs. ${Number(insuranceData.invoiced_amount).toLocaleString()}`, color: '#3f89cc' },
+                          { label: 'Insurance Approved (not cash)', value: `Rs. ${Number(insuranceData.insurance_approved_amount).toLocaleString()}`, color: '#1d6fb8' },
+                          { label: 'Patient Payments (net)', value: `Rs. ${Number(insuranceData.patient_paid_amount).toLocaleString()}`, color: '#155a96' },
+                          { label: 'Out-of-Pocket Recorded', value: `Rs. ${Number(insuranceData.out_of_pocket_amount).toLocaleString()}`, color: '#b86e0c' },
+                          { label: 'Outstanding Balance', value: `Rs. ${Number(insuranceData.outstanding_amount).toLocaleString()}`, color: '#c2372f' },
                         ].map(s => (
                           <div key={s.label} className="stat-card">
                             <div className="stat-value" style={{ color: s.color }}>{s.value}</div>
@@ -302,39 +328,10 @@ export default function Reports() {
                         ))}
                       </div>
 
-                      {/* Coverage ratio visualization */}
-                      <div className="card">
-                        <div className="card-header">
-                          <h3 className="card-title">Coverage vs Out-of-Pocket Ratio</h3>
-                        </div>
-                        <div className="card-body">
-                          {(() => {
-                            const total = Number(insuranceData.approved_amount) + Number(insuranceData.out_of_pocket);
-                            const insurancePct = total > 0 ? (Number(insuranceData.approved_amount) / total) * 100 : 0;
-                            return (
-                              <div>
-                                <div style={{ display: 'flex', borderRadius: 12, overflow: 'hidden', height: 32, marginBottom: 16 }}>
-                                  <div style={{ width: `${insurancePct}%`, background: '#1d6fb8', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white', fontSize: 12, fontWeight: 700, minWidth: insurancePct > 5 ? 'auto' : 0 }}>
-                                    {insurancePct > 10 ? `${insurancePct.toFixed(1)}%` : ''}
-                                  </div>
-                                  <div style={{ flex: 1, background: '#96c0e6', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white', fontSize: 12, fontWeight: 700 }}>
-                                    {(100 - insurancePct) > 10 ? `${(100 - insurancePct).toFixed(1)}%` : ''}
-                                  </div>
-                                </div>
-                                <div style={{ display: 'flex', justifyContent: 'center', gap: 24 }}>
-                                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                                    <div style={{ width: 12, height: 12, borderRadius: 3, background: '#1d6fb8' }} />
-                                    <span style={{ fontSize: 13, color: 'var(--gray-700)' }}>Insurance Coverage ({insurancePct.toFixed(1)}%)</span>
-                                  </div>
-                                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                                    <div style={{ width: 12, height: 12, borderRadius: 3, background: '#c2372f' }} />
-                                    <span style={{ fontSize: 13, color: 'var(--gray-700)' }}>Out-of-Pocket ({(100 - insurancePct).toFixed(1)}%)</span>
-                                  </div>
-                                </div>
-                              </div>
-                            );
-                          })()}
-                        </div>
+                      <div className="alert alert-info">
+                        Insurance approval is not a received payment and does not automatically reduce an invoice balance.
+                        Patient payments include recorded refunds and adjustments. Approved claims and patient payments
+                        are separate measures, not percentages of a single cash total.
                       </div>
                     </>
                   )}

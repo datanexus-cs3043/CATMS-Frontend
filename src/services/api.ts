@@ -308,12 +308,11 @@ export interface OutstandingPatient {
 }
 
 export interface InsuranceSummary {
-  total_claims: number;
-  total_billed?: number;
-  out_of_pocket_paid?: number;
-  approved_amount: number;
-  out_of_pocket: number;
-  pending_amount: number;
+  invoiced_amount: number;
+  insurance_approved_amount: number;
+  patient_paid_amount: number;
+  out_of_pocket_amount: number;
+  outstanding_amount: number;
 }
 
 // ── Axios Instance ────────────────────────────────────────────────────────────
@@ -672,8 +671,8 @@ export const reportsService = {
     get<BranchAppointmentSummary[]>('/reports/appointments-summary', params as Record<string, unknown>),
   getDoctorRevenue: (params?: { from_date?: string; to_date?: string }) =>
     get<DoctorRevenueReport[]>('/reports/doctor-revenue', params as Record<string, unknown>),
-  getOutstandingPatients: () =>
-    get<OutstandingPatient[]>('/reports/outstanding-balances'),
+  getOutstandingPatients: (params?: { from_date?: string; to_date?: string }) =>
+    get<OutstandingPatient[]>('/reports/outstanding-balances', params as Record<string, unknown>),
   getTreatmentCounts: (params?: { from_date?: string; to_date?: string }) =>
     get<TreatmentCountReport[]>('/reports/treatments-by-category', params as Record<string, unknown>),
   getInsuranceSummary: (params?: { from_date?: string; to_date?: string }) =>
