@@ -675,3 +675,42 @@ export default function Reports() {
       </body>
       </html>
     `;
+
+    const printWin = window.open('', '_blank', 'width=1100,height=850');
+    if (printWin) {
+      printWin.document.open();
+      printWin.document.write(printableDocument);
+      printWin.document.close();
+      printWin.focus();
+      setTimeout(() => {
+        printWin.print();
+        setIsGeneratingPdf(false);
+      }, 350);
+    } else {
+      alert('Pop-up was blocked. Please permit pop-ups to export the PDF.');
+      setIsGeneratingPdf(false);
+    }
+  };
+
+  // Access Control Screen
+  if (!isAuthorized) {
+    return (
+      <div style={{ padding: '60px 20px', maxWidth: 640, margin: '0 auto', textAlign: 'center' }}>
+        <div className="card" style={{ padding: '40px 32px' }}>
+          <div style={{ display: 'inline-flex', padding: 16, borderRadius: '50%', background: 'var(--danger-light)', color: 'var(--danger)', marginBottom: 16 }}>
+            <ShieldAlert size={40} />
+          </div>
+          <h2 style={{ fontSize: 22, color: 'var(--gray-900)', marginBottom: 8 }}>Access Restricted</h2>
+          <p style={{ color: 'var(--gray-600)', fontSize: 14, lineHeight: 1.6, marginBottom: 20 }}>
+            Executive management reports contain sensitive hospital revenue, patient dues, and doctor performance analytics.
+            Access is restricted to <strong>Administrator</strong> and <strong>Branch Manager</strong> personnel only.
+          </p>
+          <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '8px 16px', background: 'var(--gray-100)', borderRadius: 'var(--radius)', fontSize: 13, color: 'var(--gray-700)' }}>
+            <Shield size={16} /> Current Role: <strong>{user?.role ? user.role.replace('_', ' ') : 'Unauthorized'}</strong>
+          </div>
+        </div>
+      </div>
+    );
+  }
+  
+  
