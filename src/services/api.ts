@@ -48,6 +48,13 @@ export interface Branch {
   manager_staff_id?: number | null;
 }
 
+export interface ClinicDirectory {
+  branches: Pick<Branch, 'branch_id' | 'branch_name' | 'location' | 'contact_details'>[];
+  specialties: { specialty_id: number; specialty_name: string; description?: string | null }[];
+  doctor_count: number;
+  service_count: number;
+}
+
 export interface Staff {
   staff_id: number;
   branch_id: number;
