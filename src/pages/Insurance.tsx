@@ -8,7 +8,7 @@ import { useAuth } from '../auth/AuthContext';
 import { useDialog } from '../components/DialogProvider';
 
 export default function Insurance() {
-  const { isAdmin, isCashier, isManager } = useAuth();
+  const { user, isAdmin, isCashier, isManager } = useAuth();
   const { confirmAction, requestInput, showMessage } = useDialog();
   const canEdit = isAdmin || isCashier || isManager;
   const mutationPending = useRef(false);
@@ -41,6 +41,8 @@ export default function Insurance() {
   });
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
+  const writablePatients = canEdit ? patients.filter(patient => isAdmin || (user?.branch_id != null && patient.branch_id === user.branch_id)) : [];
+  const canEditCoverage = canEdit && !!coveragePolicy && (isAdmin || (user?.branch_id != null && coveragePolicy.branch_id === user.branch_id));
 
   useEffect(() => { void loadData(); return () => { loadVersion.current++; coverageVersion.current++; }; }, [canEdit]);
 
@@ -79,6 +81,10 @@ export default function Insurance() {
   const handleCreatePolicy = async (e: React.FormEvent) => {
     e.preventDefault();
     if (mutationPending.current || loadError) return;
+    if (!writablePatients.some(patient => patient.patient_id === Number(policyForm.patient_id))) {
+      setError('Select a patient registered at a branch you can manage.');
+      return;
+    }
     if (policyForm.start_date > policyForm.end_date) { setError('The end date must not precede the start date.'); return; }
     mutationPending.current = true;
     setSubmitting(true);
@@ -160,7 +166,7 @@ export default function Insurance() {
 
   const handleAddCoverage = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!coveragePolicy || mutationPending.current || coverageLoading || coverageUnavailable) return;
+    if (!coveragePolicy || !canEditCoverage || mutationPending.current || coverageLoading || coverageUnavailable) return;
     mutationPending.current = true;
     setSubmitting(true);
     setError('');
@@ -295,7 +301,7 @@ export default function Insurance() {
         <>
           {canEdit && (
             <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 16 }}>
-              <button className="btn btn-primary" disabled={isLoading || !!loadError} onClick={() => { setShowPolicyModal(true); setError(''); }}>
+              <button className="btn btn-primary" disabled={isLoading || !!loadError || writablePatients.length === 0} onClick={() => { setShowPolicyModal(true); setError(''); }}>
                 New Policy
               </button>
             </div>
@@ -425,7 +431,10 @@ export default function Insurance() {
                   </table>
                 </div>
               )}
-              {canEdit && (
+              {!canEditCoverage && canEdit && <p style={{ fontSize: 13, color: 'var(--gray-500)' }}>
+                These shared coverage terms are read-only here. Changes are managed by the patient's registered branch or an administrator.
+              </p>}
+              {canEditCoverage && (
                 <form onSubmit={handleAddCoverage} style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'flex-end' }}>
                   <div className="form-group" style={{ flex: '2 1 200px', marginBottom: 0 }}>
                     <label className="form-label">Treatment *</label>
@@ -471,7 +480,7 @@ export default function Insurance() {
                     <label className="form-label">Patient *</label>
                     <select className="form-control" required value={policyForm.patient_id} onChange={e => setPolicyForm({...policyForm, patient_id: e.target.value})}>
                       <option value="">Select patient...</option>
-                      {patients.map(p => <option key={p.patient_id} value={p.patient_id}>{p.first_name} {p.last_name}</option>)}
+                      {writablePatients.map(p => <option key={p.patient_id} value={p.patient_id}>{p.first_name} {p.last_name}</option>)}
                     </select>
                   </div>
                   <div className="form-group">
@@ -509,7 +518,7 @@ export default function Insurance() {
               </div>
               <div className="modal-footer">
                 <button type="button" className="btn btn-ghost" onClick={() => setShowPolicyModal(false)}>Cancel</button>
-                <button type="submit" className="btn btn-primary" disabled={submitting}>
+                <button type="submit" className="btn btn-primary" disabled={submitting || writablePatients.length === 0}>
                   {submitting ? <><span className="spinner" style={{ width: 14, height: 14, borderWidth: 2 }} /> Creating...</> : 'Create Policy'}
                 </button>
               </div>

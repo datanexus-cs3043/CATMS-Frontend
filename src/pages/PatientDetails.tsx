@@ -32,6 +32,7 @@ export default function PatientDetails() {
   const [contactSuccess, setContactSuccess] = useState('');
   const contactPending = useRef(false);
   const backPath = isDoctor ? '/my-patients' : '/patients';
+  const canManageContacts = canEdit && !!patient && (isAdmin || patient.branch_id === user?.branch_id);
 
   useEffect(() => {
     setActiveTab('overview');
@@ -79,7 +80,7 @@ export default function PatientDetails() {
 
   const addContact = async (event: React.FormEvent) => {
     event.preventDefault();
-    if (!canEdit || !patient || contactPending.current) return;
+    if (!canManageContacts || !patient || contactPending.current) return;
     const payload = {
       contact_name: contactForm.contact_name.trim(),
       relationship: contactForm.relationship.trim(),
@@ -210,6 +211,9 @@ export default function PatientDetails() {
       </div>
 
       {/* Tabs */}
+      {canEdit && patient.branch_id !== user?.branch_id && !isAdmin && <div className="alert alert-info">
+        This shared record was registered at another branch. You can book a visit at your branch and read personal, emergency-contact and insurance details. Contact the registered branch to change patient or emergency-contact details.
+      </div>}
       <div className="tabs">
         {([
           { key: 'overview', label: 'Overview' },
@@ -288,7 +292,7 @@ export default function PatientDetails() {
           ) : (
             <div className="table-container">
               <table>
-                <thead><tr><th>Provider</th><th>Policy #</th><th>Valid From</th><th>Valid To</th><th>Status</th></tr></thead>
+                <thead><tr><th>Provider</th><th>Policy #</th><th>Valid From</th><th>Valid To</th><th>Status</th><th>Treatment Coverage</th></tr></thead>
                 <tbody>
                   {policies.map(pol => (
                     <tr key={pol.policy_id}>
@@ -298,6 +302,15 @@ export default function PatientDetails() {
                       <td>{pol.end_date}</td>
                       <td>
                         <span className={`badge ${pol.status === 'Active' ? 'badge-success' : 'badge-gray'}`}>{pol.status}</span>
+                      </td>
+                      <td>
+                        <details>
+                          <summary>{pol.coverages?.length || 0} coverage rules</summary>
+                          {pol.coverages?.length ? <ul>{pol.coverages.map(coverage => <li key={coverage.coverage_id}>
+                            {coverage.treatment_name || `Treatment #${coverage.treatment_id}`}: {coverage.coverage_percentage}% · Maximum LKR {Number(coverage.maximum_amount).toFixed(2)} per invoice
+                          </li>)}</ul> : <p>No treatment coverage is recorded for this policy.</p>}
+                          <p>Policy dates, status and treatment rules determine eligibility. Coverage does not confirm an approved claim or payment.</p>
+                        </details>
                       </td>
                     </tr>
                   ))}
@@ -312,7 +325,7 @@ export default function PatientDetails() {
         <div className="card">
           {contactError && <div className="alert alert-error" role="alert">{contactError}</div>}
           {contactSuccess && <div className="alert alert-success" role="status">{contactSuccess}</div>}
-          {canEdit && (
+          {canManageContacts && (
             <form
               className="card-body"
               style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'flex-end', borderBottom: '1px solid var(--gray-100)' }}

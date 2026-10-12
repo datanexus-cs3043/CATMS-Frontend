@@ -41,16 +41,19 @@ export default function Patients() {
   const loadVersion = useRef(0);
 
   useEffect(() => {
+    setPatients([]); setBranches([]); setSuccessMsg(''); setShowModal(false);
+    setForm({ ...blankForm });
+    setFilterBranch('');
     loadData();
     if (searchParams.get('new') === '1') {
       openModal();
       setSearchParams({}, { replace: true });
     }
     return () => { loadVersion.current++; };
-  }, []);
+  }, [user?.user_id, user?.branch_id]);
 
   const openModal = () => {
-    const branchId = user?.branch_id || branches[0]?.branch_id || 0;
+    const branchId = isAdmin ? user?.branch_id || branches[0]?.branch_id || 0 : user?.branch_id || 0;
     setForm({ ...blankForm, branch_id: branchId });
     setError('');
     setShowModal(true);
@@ -68,7 +71,7 @@ export default function Patients() {
       if (version !== loadVersion.current) return;
       setPatients(pts);
       setBranches(brs);
-      setForm(current => current.branch_id ? current : { ...current, branch_id: user?.branch_id || brs[0]?.branch_id || 0 });
+      setForm(current => current.branch_id ? current : { ...current, branch_id: user?.branch_id || (isAdmin ? brs[0]?.branch_id : 0) || 0 });
     } catch (err) {
       if (version === loadVersion.current) setLoadError(apiErrorMessage(err, 'Could not load patients. Please retry.'));
     } finally {
@@ -87,7 +90,7 @@ export default function Patients() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (submittingRef.current) return;
-    if (!form.branch_id || !form.first_name.trim() || !form.last_name.trim()) {
+    if (!canEdit || !branches.some(branch => branch.branch_id === form.branch_id) || !form.first_name.trim() || !form.last_name.trim()) {
       setError('Enter the patient name and select an available branch.');
       return;
     }
@@ -101,16 +104,18 @@ export default function Patients() {
       return;
     }
     submittingRef.current = true;
+    const version = loadVersion.current;
     setSubmitting(true);
     setError('');
     try {
       const { emergency_contact_name, emergency_contact_relationship, emergency_contact_phone, create_portal, portal_username, ...patientFields } = form;
       const created = await patientService.create({ ...patientFields, ...(create_portal ? { portal_username: portal_username.trim() } : {}), ...(contact.contact_name ? { emergency_contact: contact } : {}) });
+      if (version !== loadVersion.current) return;
       setSuccessMsg(`${created.first_name} ${created.last_name} registered (Patient #${created.patient_id}). ${created.portal_username ? `Portal username: ${created.portal_username}. Initial password: password123. Ask the patient to change it after signing in.` : 'No portal account was requested.'}`);
       setShowModal(false);
       loadData();
     } catch (err) {
-      setError(apiErrorMessage(err, 'Failed to register patient'));
+      if (version === loadVersion.current) setError(apiErrorMessage(err, 'Failed to register patient'));
     } finally {
       setSubmitting(false);
       submittingRef.current = false;
@@ -119,6 +124,7 @@ export default function Patients() {
 
   const getBranchName = (id: number) =>
     branches.find(b => b.branch_id === id)?.branch_name || `Branch #${id}`;
+  const registrationBranchIds = [...new Set([...branches.map(branch => branch.branch_id), ...patients.map(patient => patient.branch_id)])].sort((a, b) => a - b);
 
   const calcAge = (dob: string) => {
     const today = new Date();
@@ -162,8 +168,8 @@ export default function Patients() {
             onChange={e => setFilterBranch(e.target.value)}
           >
             <option value="">All Branches</option>
-            {branches.map(b => (
-              <option key={b.branch_id} value={b.branch_id}>{b.branch_name}</option>
+            {registrationBranchIds.map(branchId => (
+              <option key={branchId} value={branchId}>{getBranchName(branchId)}</option>
             ))}
           </select>
 
@@ -219,7 +225,7 @@ export default function Patients() {
                   <th>Patient</th>
                   <th>Gender / Age</th>
                   <th>Contact</th>
-                  <th>Branch</th>
+                  <th>Registered Branch</th>
                   <th>Type</th>
                   <th>Actions</th>
                 </tr>
@@ -292,23 +298,24 @@ export default function Patients() {
 
       {/* Register Patient Modal */}
       {showModal && (
-        <div className="modal-overlay" onClick={() => setShowModal(false)}>
+        <div className="modal-overlay" onClick={() => { if (!submittingRef.current) setShowModal(false); }}>
           <div className="modal modal-lg" onClick={e => e.stopPropagation()}>
             <div className="modal-header">
               <h3 className="modal-title">Register New Patient</h3>
-              <button className="modal-close" onClick={() => setShowModal(false)}></button>
+              <button className="modal-close" aria-label="Close registration" disabled={submitting} onClick={() => setShowModal(false)}></button>
             </div>
             <form onSubmit={handleSubmit}>
               <div className="modal-body">
                 {error && <div className="alert alert-error">{error}</div>}
+                <fieldset disabled={submitting} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
                 <div className="form-row">
                   <div className="form-group">
                     <label className="form-label">First Name *</label>
-                    <input className="form-control" required value={form.first_name || ''} onChange={e => setForm({...form, first_name: e.target.value})} placeholder="e.g. Kavindu" />
+                    <input className="form-control" required maxLength={100} value={form.first_name || ''} onChange={e => setForm({...form, first_name: e.target.value})} placeholder="e.g. Kavindu" />
                   </div>
                   <div className="form-group">
                     <label className="form-label">Last Name *</label>
-                    <input className="form-control" required value={form.last_name || ''} onChange={e => setForm({...form, last_name: e.target.value})} placeholder="e.g. Perera" />
+                    <input className="form-control" required maxLength={100} value={form.last_name || ''} onChange={e => setForm({...form, last_name: e.target.value})} placeholder="e.g. Perera" />
                   </div>
                 </div>
                 <div className="form-row">
@@ -332,7 +339,7 @@ export default function Patients() {
                   </div>
                   <div className="form-group">
                     <label className="form-label">Contact</label>
-                    <input className="form-control" value={form.contact_details || ''} onChange={e => setForm({...form, contact_details: e.target.value})} placeholder="07XXXXXXXX" />
+                    <input className="form-control" maxLength={255} value={form.contact_details || ''} onChange={e => setForm({...form, contact_details: e.target.value})} placeholder="07XXXXXXXX" />
                   </div>
                 </div>
                 <div className="form-row">
@@ -355,7 +362,7 @@ export default function Patients() {
                 </div>
                 <div className="form-group">
                   <label className="form-label">Address</label>
-                  <input className="form-control" value={form.address || ''} onChange={e => setForm({...form, address: e.target.value})} placeholder="Full address..." />
+                  <input className="form-control" maxLength={500} value={form.address || ''} onChange={e => setForm({...form, address: e.target.value})} placeholder="Full address..." />
                 </div>
                 <div className="form-group">
                   <label className="form-label" style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
@@ -372,20 +379,21 @@ export default function Patients() {
                 <div className="form-row">
                   <div className="form-group">
                     <label className="form-label">Name</label>
-                    <input className="form-control" value={form.emergency_contact_name} onChange={e => setForm({...form, emergency_contact_name: e.target.value})} />
+                    <input className="form-control" maxLength={150} value={form.emergency_contact_name} onChange={e => setForm({...form, emergency_contact_name: e.target.value})} />
                   </div>
                   <div className="form-group">
                     <label className="form-label">Relationship</label>
-                    <input className="form-control" value={form.emergency_contact_relationship} onChange={e => setForm({...form, emergency_contact_relationship: e.target.value})} placeholder="e.g. Spouse" />
+                    <input className="form-control" maxLength={100} value={form.emergency_contact_relationship} onChange={e => setForm({...form, emergency_contact_relationship: e.target.value})} placeholder="e.g. Spouse" />
                   </div>
                   <div className="form-group">
                     <label className="form-label">Phone</label>
-                    <input className="form-control" value={form.emergency_contact_phone} onChange={e => setForm({...form, emergency_contact_phone: e.target.value})} />
+                    <input className="form-control" maxLength={50} value={form.emergency_contact_phone} onChange={e => setForm({...form, emergency_contact_phone: e.target.value})} />
                   </div>
                 </div>
+                </fieldset>
               </div>
               <div className="modal-footer">
-                <button type="button" className="btn btn-ghost" onClick={() => setShowModal(false)}>Cancel</button>
+                <button type="button" className="btn btn-ghost" disabled={submitting} onClick={() => setShowModal(false)}>Cancel</button>
                 <button type="submit" className="btn btn-primary" disabled={submitting || isLoading || !!loadError}>
                   {submitting ? <><span className="spinner" style={{ width: 14, height: 14, borderWidth: 2 }} /> Registering...</> : 'Register Patient'}
                 </button>

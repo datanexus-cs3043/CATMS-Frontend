@@ -141,6 +141,7 @@ export interface InsuranceProvider {
 
 export interface InsurancePolicy {
   policy_id: number;
+  branch_id?: number | null;
   patient_id: number;
   provider_id: number;
   policy_number: number;

@@ -86,6 +86,7 @@ export default function MyProfile() {
     event.preventDefault();
     if (!isPatient || !user?.patient_id || profilePending.current) return;
     profilePending.current = true;
+    const version = loadVersion.current;
     setSaving(true); setError(''); setSuccessMsg('');
     try {
       const updated = await patientService.update(user.patient_id, {
@@ -93,18 +94,19 @@ export default function MyProfile() {
         contact_details: form.contact_details.trim(),
         address: form.address.trim(),
       });
+      if (loadVersion.current !== version) return;
       // PUT returns the base profile, without branch/emergency-contact joins.
       setPatient(current => current ? { ...current, ...updated } : updated);
       setSuccessMsg('Your patient contact details have been updated.');
       setEditing(false);
     } catch (err) {
-      setError(apiErrorMessage(err, 'Failed to save your contact details.'));
+      if (loadVersion.current === version) setError(apiErrorMessage(err, 'Failed to save your contact details.'));
     } finally { profilePending.current = false; setSaving(false); }
   };
 
   const addContact = async (event: React.FormEvent) => {
     event.preventDefault();
-    if (!user?.patient_id || contactPending.current) return;
+    if (!isPatient || !user?.patient_id || contactPending.current) return;
     const payload = {
       contact_name: contactForm.contact_name.trim(),
       relationship: contactForm.relationship.trim(),
@@ -115,29 +117,35 @@ export default function MyProfile() {
       return;
     }
     contactPending.current = true; setContactSaving(true); setError(''); setSuccessMsg('');
+    const version = loadVersion.current;
     try {
       const created = await patientService.addEmergencyContact(user.patient_id, payload);
+      if (loadVersion.current !== version) return;
       setContacts(current => [...current, created]);
       setContactForm(emptyContact);
       setSuccessMsg('Emergency contact added.');
     } catch (err) {
-      setError(apiErrorMessage(err, 'Could not add the emergency contact.'));
+      if (loadVersion.current === version) setError(apiErrorMessage(err, 'Could not add the emergency contact.'));
     } finally { contactPending.current = false; setContactSaving(false); }
   };
 
   const removeContact = async (contact: EmergencyContact) => {
-    if (!user?.patient_id || contactPending.current) return;
+    if (!isPatient || !user?.patient_id || contactPending.current) return;
+    const patientId = user.patient_id;
+    const version = loadVersion.current;
     contactPending.current = true; setContactSaving(true);
     try {
       if (!await confirmAction(`Remove ${contact.contact_name} from your emergency contacts?`, {
         title: 'Remove emergency contact', confirmLabel: 'Remove contact', danger: true,
       })) return;
+      if (loadVersion.current !== version) return;
       setError(''); setSuccessMsg('');
-      await patientService.deleteEmergencyContact(user.patient_id, contact.emergency_contact_id);
+      await patientService.deleteEmergencyContact(patientId, contact.emergency_contact_id);
+      if (loadVersion.current !== version) return;
       setContacts(current => current.filter(item => item.emergency_contact_id !== contact.emergency_contact_id));
       setSuccessMsg('Emergency contact removed.');
     } catch (err) {
-      setError(apiErrorMessage(err, 'Could not remove the emergency contact.'));
+      if (loadVersion.current === version) setError(apiErrorMessage(err, 'Could not remove the emergency contact.'));
     } finally { contactPending.current = false; setContactSaving(false); }
   };
 
@@ -222,12 +230,12 @@ export default function MyProfile() {
           </div> : <form onSubmit={handleSave}>
             <div className="form-row">
               <div className="form-group"><label className="form-label" htmlFor="profile-email">Patient Contact Email</label>
-                <input id="profile-email" type="email" className="form-control" disabled={saving} value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} /></div>
+                <input id="profile-email" type="email" maxLength={255} className="form-control" disabled={saving} value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} /></div>
               <div className="form-group"><label className="form-label" htmlFor="profile-phone">Phone / Contact</label>
-                <input id="profile-phone" className="form-control" disabled={saving} value={form.contact_details} onChange={e => setForm({ ...form, contact_details: e.target.value })} /></div>
+                <input id="profile-phone" maxLength={255} className="form-control" disabled={saving} value={form.contact_details} onChange={e => setForm({ ...form, contact_details: e.target.value })} /></div>
             </div>
             <div className="form-group"><label className="form-label" htmlFor="profile-address">Address</label>
-              <input id="profile-address" className="form-control" disabled={saving} value={form.address} onChange={e => setForm({ ...form, address: e.target.value })} /></div>
+              <input id="profile-address" maxLength={500} className="form-control" disabled={saving} value={form.address} onChange={e => setForm({ ...form, address: e.target.value })} /></div>
             <p style={{ fontSize: 12, color: 'var(--gray-500)', marginBottom: 12 }}>Changing the patient contact email does not change your account's sign-in email. Contact clinic administration for account changes.</p>
             <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? 'Saving...' : 'Save Changes'}</button>{' '}
             <button type="button" className="btn btn-ghost" disabled={saving} onClick={() => setEditing(false)}>Cancel</button>
@@ -264,10 +272,17 @@ export default function MyProfile() {
           {insuranceError ? <div className="card-body"><div className="alert alert-error" role="alert">{insuranceError}</div><button className="btn btn-ghost btn-sm" onClick={() => setReload(n => n + 1)}>Try again</button></div> :
             policies.length === 0 ? <div className="card-body">No insurance policy on file. Visit reception to register your insurance.</div> :
               <div className="table-container"><table>
-                <thead><tr><th>Provider</th><th>Policy #</th><th>Valid</th><th>Status</th></tr></thead>
+                <thead><tr><th>Provider</th><th>Policy #</th><th>Valid</th><th>Status</th><th>Treatment Coverage</th></tr></thead>
                 <tbody>{policies.map(policy => <tr key={policy.policy_id}>
                   <td>{policy.provider_name || '—'}</td><td>{policy.policy_number}</td><td>{policy.start_date} to {policy.end_date}</td>
                   <td><span className={`badge ${policy.status === 'Active' ? 'badge-success' : 'badge-gray'}`}>{policy.status}</span></td>
+                  <td><details>
+                    <summary>{policy.coverages?.length || 0} coverage rules</summary>
+                    {policy.coverages?.length ? <ul>{policy.coverages.map(coverage => <li key={coverage.coverage_id}>
+                      {coverage.treatment_name || `Treatment #${coverage.treatment_id}`}: {coverage.coverage_percentage}% · Maximum LKR {Number(coverage.maximum_amount).toFixed(2)} per invoice
+                    </li>)}</ul> : <p>No treatment coverage is recorded for this policy.</p>}
+                    <p>Policy dates, status and treatment rules determine eligibility. Coverage does not confirm an approved claim or payment.</p>
+                  </details></td>
                 </tr>)}</tbody>
               </table></div>}
         </div>
