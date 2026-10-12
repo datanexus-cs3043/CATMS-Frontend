@@ -8,6 +8,8 @@ export default function Branches() {
   const [staffList, setStaffList] = useState<Staff[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
+  const [managerBranch, setManagerBranch] = useState<Branch | null>(null);
+  const [managerId, setManagerId] = useState('');
   const [search, setSearch] = useState('');
   const [form, setForm] = useState<Partial<Branch>>({
     branch_name: '',
@@ -30,6 +32,7 @@ export default function Branches() {
     setBranches([]);
     setStaffList([]);
     setShowModal(false);
+    setManagerBranch(null);
     setSuccessMsg('');
     void loadData();
     return () => {
@@ -98,6 +101,39 @@ export default function Branches() {
       setForm({ branch_name: '', location: '', contact_details: '' });
     } catch (err) {
       if (mounted.current && scope === scopeVersion.current) setError(apiErrorMessage(err, 'Could not confirm branch creation. Check the branch list before trying again.'));
+    } finally {
+      submittingRef.current = false;
+      if (mounted.current) setSubmitting(false);
+    }
+  };
+
+  const assignManager = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!isAdmin || !managerBranch || submittingRef.current || staffError) return;
+    const staffId = Number(managerId);
+    const candidate = staffList.find(staff => staff.staff_id === staffId
+      && staff.branch_id === managerBranch.branch_id
+      && ['branch_manager', 'manager'].includes(staff.role.trim().toLowerCase().replace(/ /g, '_')));
+    if (!candidate) {
+      setError('Select a branch-manager staff member from this branch.');
+      return;
+    }
+    const scope = scopeVersion.current;
+    submittingRef.current = true;
+    setSubmitting(true);
+    setError('');
+    try {
+      const updated = await branchService.update(managerBranch.branch_id, { manager_staff_id: staffId });
+      if (!mounted.current || scope !== scopeVersion.current) return;
+      loadVersion.current += 1;
+      setIsLoading(false);
+      setBranches(current => current.map(branch => branch.branch_id === updated.branch_id ? updated : branch));
+      setSuccessMsg(`Manager assigned to ${updated.branch_name}.`);
+      setManagerBranch(null);
+    } catch (err) {
+      if (mounted.current && scope === scopeVersion.current) {
+        setError(apiErrorMessage(err, 'Could not confirm the manager assignment. Refresh before retrying.'));
+      }
     } finally {
       submittingRef.current = false;
       if (mounted.current) setSubmitting(false);
@@ -279,9 +315,53 @@ export default function Branches() {
                     </span>
                   </div>
                 </div>
+                {isAdmin && (
+                  <button className="btn btn-secondary btn-sm" disabled={!!staffError || submitting}
+                    onClick={() => {
+                      setManagerBranch(branch);
+                      setManagerId(branch.manager_staff_id?.toString() ?? '');
+                      setError('');
+                      setSuccessMsg('');
+                    }}>
+                    {branch.manager_staff_id ? 'Change Manager' : 'Assign Manager'}
+                  </button>
+                )}
               </article>
             );
           })}
+        </div>
+      )}
+
+      {managerBranch && (
+        <div className="modal-overlay" onClick={() => { if (!submittingRef.current) setManagerBranch(null); }}>
+          <div className="modal" role="dialog" aria-modal="true" aria-labelledby="manager-dialog-title"
+            onClick={event => event.stopPropagation()}>
+            <div className="modal-header">
+              <h3 className="modal-title" id="manager-dialog-title">Manager - {managerBranch.branch_name}</h3>
+              <button className="modal-close" aria-label="Close" disabled={submitting}
+                onClick={() => setManagerBranch(null)} />
+            </div>
+            <form onSubmit={assignManager}>
+              <div className="modal-body">
+                {error && <div className="alert alert-error" role="alert">{error}</div>}
+                <label className="form-label" htmlFor="branch-manager">Branch manager *</label>
+                <select id="branch-manager" className="form-control" required disabled={submitting || !!staffError}
+                  value={managerId} onChange={event => setManagerId(event.target.value)}>
+                  <option value="">Select a manager</option>
+                  {getStaffForBranch(managerBranch.branch_id)
+                    .filter(staff => ['branch_manager', 'manager'].includes(staff.role.trim().toLowerCase().replace(/ /g, '_')))
+                    .map(staff => <option key={staff.staff_id} value={staff.staff_id}>{staff.first_name} {staff.last_name}</option>)}
+                </select>
+                <p className="text-sm text-muted">Create staff with the Branch Manager role in this branch first if no manager is available.</p>
+              </div>
+              <div className="modal-footer">
+                <button className="btn btn-ghost" type="button" disabled={submitting} onClick={() => setManagerBranch(null)}>Cancel</button>
+                <button className="btn btn-primary" type="submit" disabled={submitting || !!staffError || !managerId}>
+                  {submitting ? 'Saving...' : 'Assign Manager'}
+                </button>
+              </div>
+            </form>
+          </div>
         </div>
       )}
 
