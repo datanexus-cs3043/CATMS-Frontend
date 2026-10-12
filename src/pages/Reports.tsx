@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   reportsService,
+  branchService,
+  Branch,
   BranchAppointmentSummary,
   DoctorRevenueReport,
   OutstandingPatient,
@@ -25,7 +27,29 @@ import {
 } from 'lucide-react';
 
 type ReportType = 'branch' | 'doctor_revenue' | 'outstanding' | 'treatment' | 'insurance';
-type ReportFilter = { from: string; to: string; date: string };
+type ReportFilter = { from: string; to: string; date: string; branch_id: string };
+type DoctorRevenueRow = DoctorRevenueReport & { branch_id: number };
+type TreatmentRow = TreatmentCountReport & { category_id: number; treatment_id: number };
+
+const validAmount = (value: unknown) =>
+  (typeof value === 'number' || (typeof value === 'string' && value.trim() !== '')) && Number.isFinite(Number(value));
+
+const requireRows = (rows: unknown, textFields: string[], amountFields: string[], countFields: string[]) => {
+  if (!Array.isArray(rows) || rows.some(row => !row ||
+    textFields.some(key => typeof row[key] !== 'string') ||
+    amountFields.some(key => !validAmount(row[key])) ||
+    countFields.some(key => !validAmount(row[key]) || !Number.isSafeInteger(Number(row[key])) || Number(row[key]) < 0))) {
+    throw new Error('Incomplete report data.');
+  }
+};
+
+const describePeriod = (type: ReportType, filter: ReportFilter) => {
+  if (type === 'branch' && filter.date) return `Appointment date: ${filter.date}`;
+  const basis = type === 'branch' ? 'Appointment' : type === 'treatment' ? 'Completed visit' : 'Invoice';
+  return filter.from || filter.to
+    ? `${basis} period: ${filter.from || 'Start'} to ${filter.to || 'No upper bound'}`
+    : `All ${basis.toLowerCase()} dates`;
+};
 
 // React escapes screen text; the separate print document needs the same protection.
 const escapeHtml = (value: unknown) => String(value ?? '').replace(/[&<>"']/g, character => ({
@@ -39,36 +63,63 @@ export default function Reports() {
   const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
   const [error, setError] = useState('');
   const [printError, setPrintError] = useState('');
-  const [loadedReport, setLoadedReport] = useState<{ type: ReportType; filter: ReportFilter } | null>(null);
+  const [loadedReport, setLoadedReport] = useState<{ type: ReportType; filter: ReportFilter; owner: string; scope: string } | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
+  const [branches, setBranches] = useState<Branch[]>([]);
+  const [branchError, setBranchError] = useState('');
 
   // Live Database States
   const [branchData, setBranchData] = useState<BranchAppointmentSummary[]>([]);
-  const [doctorRevData, setDoctorRevData] = useState<DoctorRevenueReport[]>([]);
+  const [doctorRevData, setDoctorRevData] = useState<DoctorRevenueRow[]>([]);
   const [outstandingData, setOutstandingData] = useState<OutstandingPatient[]>([]);
-  const [treatmentData, setTreatmentData] = useState<TreatmentCountReport[]>([]);
+  const [treatmentData, setTreatmentData] = useState<TreatmentRow[]>([]);
   const [insuranceData, setInsuranceData] = useState<InsuranceSummary | null>(null);
 
   const [dateFilter, setDateFilter] = useState({
     from: '',
     to: '',
     date: '',
+    branch_id: '',
   });
 
   const isAuthorized = hasRole(['admin', 'branch_manager']);
+  const isAdmin = hasRole(['admin']);
+  const reportOwner = `${user?.user_id}:${user?.role}:${user?.branch_id}`;
   const requestVersion = useRef(0);
+
+  useEffect(() => {
+    let current = true;
+    setBranches([]);
+    setBranchError('');
+    if (isAdmin) {
+      branchService.getAll().then(rows => {
+        requireRows(rows, ['branch_name'], [], ['branch_id']);
+        if (current) setBranches(rows);
+      }).catch(() => {
+        if (current) setBranchError('Branch names could not be loaded. You can still select a branch by its ID.');
+      });
+    }
+    return () => { current = false; };
+  }, [isAdmin, user?.user_id]);
 
   const loadReport = async (type: ReportType, filter = dateFilter) => {
     if (!isAuthorized) return;
     const version = ++requestVersion.current;
     const isCurrent = () => requestVersion.current === version;
-    const appliedFilter = type === 'branch'
-      ? { from: '', to: '', date: filter.date }
-      : { from: filter.from, to: filter.to, date: '' };
+    const singleDay = type === 'branch' && !!filter.date;
+    const appliedFilter = {
+      from: singleDay ? '' : filter.from, to: singleDay ? '' : filter.to,
+      date: singleDay ? filter.date : '', branch_id: isAdmin ? filter.branch_id : '',
+    };
     setLoadedReport(null);
     setPrintError('');
-    if (type !== 'branch' && filter.from && filter.to && filter.from > filter.to) {
+    if (appliedFilter.from && appliedFilter.to && appliedFilter.from > appliedFilter.to) {
       setError('From date must not be after to date.');
+      setIsLoading(false);
+      return;
+    }
+    if (appliedFilter.branch_id && (!Number.isSafeInteger(Number(appliedFilter.branch_id)) || Number(appliedFilter.branch_id) <= 0)) {
+      setError('Branch ID must be a positive whole number.');
       setIsLoading(false);
       return;
     }
@@ -76,51 +127,52 @@ export default function Reports() {
     setError('');
 
     try {
-      const period = { from_date: appliedFilter.from || undefined, to_date: appliedFilter.to || undefined };
+      const period = {
+        from_date: appliedFilter.from || undefined, to_date: appliedFilter.to || undefined,
+        branch_id: appliedFilter.branch_id ? Number(appliedFilter.branch_id) : undefined,
+      };
       switch (type) {
         case 'branch': {
           const res = await reportsService.getBranchAppointmentSummary({
-            date: filter.date || undefined,
+            ...period, date: appliedFilter.date || undefined,
           });
-          if (!Array.isArray(res)) throw new Error('Missing branch summary.');
+          requireRows(res, ['branch_name', 'appointment_date'], [], ['branch_id', 'scheduled', 'completed', 'cancelled', 'total']);
+          if (res.some(row => Number(row.total) !== Number(row.scheduled) + Number(row.completed) + Number(row.cancelled))) throw new Error('Unreconciled appointment statuses.');
           if (isCurrent()) setBranchData(res);
           break;
         }
         case 'doctor_revenue': {
-          const res = await reportsService.getDoctorRevenue({
-            from_date: filter.from || undefined,
-            to_date: filter.to || undefined,
-          });
-          if (!Array.isArray(res)) throw new Error('Missing doctor summary.');
-          if (isCurrent()) setDoctorRevData(res);
+          const res = await reportsService.getDoctorRevenue(period);
+          requireRows(res, ['doctor_name', 'branch_name'], ['total_revenue', 'collected', 'avg_revenue'], ['doctor_id', 'branch_id', 'appointment_count']);
+          if (isCurrent()) setDoctorRevData(res as DoctorRevenueRow[]);
           break;
         }
         case 'outstanding': {
           const res = await reportsService.getOutstandingPatients(period);
-          if (!Array.isArray(res)) throw new Error('Missing outstanding summary.');
+          requireRows(res, ['patient_name'], ['total_outstanding'], ['patient_id', 'invoice_count']);
           if (isCurrent()) setOutstandingData(res);
           break;
         }
         case 'treatment': {
-          const res = await reportsService.getTreatmentCounts({
-            from_date: filter.from || undefined,
-            to_date: filter.to || undefined,
-          });
-          if (!Array.isArray(res)) throw new Error('Missing treatment summary.');
-          if (isCurrent()) setTreatmentData(res);
+          const res = await reportsService.getTreatmentCounts(period);
+          requireRows(res, ['category_name', 'treatment_name'], ['total_revenue'], ['category_id', 'treatment_id', 'count']);
+          if (isCurrent()) setTreatmentData(res as TreatmentRow[]);
           break;
         }
         case 'insurance': {
           const res = await reportsService.getInsuranceSummary(period);
           if (!res || ['invoiced_amount', 'insurance_approved_amount', 'patient_paid_amount', 'out_of_pocket_amount', 'outstanding_amount']
-            .some(key => res[key as keyof InsuranceSummary] == null || !Number.isFinite(Number(res[key as keyof InsuranceSummary])))) {
+            .some(key => !validAmount(res[key as keyof InsuranceSummary]))) {
             throw new Error('Missing insurance summary.');
           }
           if (isCurrent()) setInsuranceData(res);
           break;
         }
       }
-      if (isCurrent()) setLoadedReport({ type, filter: appliedFilter });
+      const branch = branches.find(item => String(item.branch_id) === appliedFilter.branch_id);
+      const scope = !isAdmin ? `Assigned branch #${user?.branch_id}` : appliedFilter.branch_id
+        ? `Branch #${appliedFilter.branch_id}${branch ? ` (${branch.branch_name})` : ''}` : 'All branches';
+      if (isCurrent()) setLoadedReport({ type, filter: appliedFilter, owner: reportOwner, scope });
     } catch (err: any) {
       if (isCurrent()) {
         const detail = err?.response?.data?.detail;
@@ -137,9 +189,10 @@ export default function Reports() {
     }
     return () => { requestVersion.current += 1; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeReport, isAuthorized, user?.user_id, user?.branch_id]);
+  }, [activeReport, isAuthorized, reportOwner]);
 
-  const canPrint = isAuthorized && !isLoading && !error && loadedReport?.type === activeReport;
+  const hasLoadedReport = loadedReport?.type === activeReport && loadedReport.owner === reportOwner;
+  const canPrint = isAuthorized && !isLoading && !error && hasLoadedReport;
 
   // Instant Search Filters
   const filteredBranch = useMemo(() => {
@@ -171,6 +224,19 @@ export default function Reports() {
     );
   }, [treatmentData, searchTerm]);
 
+  const treatmentCategories = useMemo(() => {
+    const categories = new Map<number, { category_id: number; category_name: string; count: number; total_revenue: number }>();
+    for (const treatment of filteredTreatment) {
+      const category = categories.get(treatment.category_id) || {
+        category_id: treatment.category_id, category_name: treatment.category_name, count: 0, total_revenue: 0,
+      };
+      category.count += Number(treatment.count);
+      category.total_revenue += Number(treatment.total_revenue);
+      categories.set(treatment.category_id, category);
+    }
+    return [...categories.values()];
+  }, [filteredTreatment]);
+
   const formatLKR = (amount: number | string | undefined | null) => {
     if (amount == null || amount === '' || !Number.isFinite(Number(amount))) return 'Unavailable';
     return 'Rs. ' + Number(amount).toLocaleString('en-LK', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -183,9 +249,9 @@ export default function Reports() {
 
   const reportsConfig = [
     { key: 'branch' as const, label: '1. Branch Appointment Summary', desc: 'Daily throughput per branch categorized by status' },
-    { key: 'doctor_revenue' as const, label: '2. Doctor Revenue Report', desc: 'Consultation revenue, billings, and collection efficiency' },
+    { key: 'doctor_revenue' as const, label: '2. Doctor Revenue Report', desc: 'Invoiced service revenue and current net patient payments per doctor' },
     { key: 'outstanding' as const, label: '3. Outstanding Balances', desc: 'Unpaid invoice balances by patient, filtered by invoice date' },
-    { key: 'treatment' as const, label: '4. Treatments by Category', desc: 'Clinical procedure demand volume and departmental revenue' },
+    { key: 'treatment' as const, label: '4. Treatments by Category', desc: 'Completed treatment units, category totals and recorded service value' },
     { key: 'insurance' as const, label: '5. Insurance vs Out-of-Pocket', desc: 'Billed amounts, claim approvals, net patient payments and estimated exposure' },
   ];
 
@@ -253,9 +319,7 @@ export default function Reports() {
   const downloadReportAsPDF = () => {
     if (!canPrint || !loadedReport || isGeneratingPdf) return;
     const appliedFilter = loadedReport.filter;
-    const periodDescription = (appliedFilter.from || appliedFilter.to)
-      ? `Invoice period: ${appliedFilter.from || 'Start'} to ${appliedFilter.to || 'Present'}`
-      : 'All invoice dates';
+    const periodDescription = describePeriod(activeReport, appliedFilter);
     setPrintError('');
     setIsGeneratingPdf(true);
     const dateStamp = new Date().toLocaleDateString('en-US', {
@@ -277,7 +341,7 @@ export default function Reports() {
 
     if (activeReport === 'branch') {
       title = 'BRANCH-WISE APPOINTMENT THROUGHPUT & STATUS AUDIT';
-      filterDescription = appliedFilter.date ? `Appointment date: ${appliedFilter.date}` : 'All appointment dates';
+      filterDescription = periodDescription;
       const grandTotal = filteredBranch.reduce((acc, r) => acc + Number(r.total || 0), 0);
       const totCompleted = filteredBranch.reduce((acc, r) => acc + Number(r.completed || 0), 0);
       const totScheduled = filteredBranch.reduce((acc, r) => acc + Number(r.scheduled || 0), 0);
@@ -288,7 +352,7 @@ export default function Reports() {
         <div class="kpi-grid">
           <div class="kpi-card"><div class="kpi-val">${grandTotal}</div><div class="kpi-lbl">Total Appointments</div></div>
           <div class="kpi-card kpi-success"><div class="kpi-val">${totCompleted}</div><div class="kpi-lbl">Completed (${compRate}%)</div></div>
-          <div class="kpi-card kpi-primary"><div class="kpi-val">${totScheduled}</div><div class="kpi-lbl">Active Queue</div></div>
+          <div class="kpi-card kpi-primary"><div class="kpi-val">${totScheduled}</div><div class="kpi-lbl">Scheduled</div></div>
           <div class="kpi-card kpi-danger"><div class="kpi-val">${totCancelled}</div><div class="kpi-lbl">Cancelled</div></div>
         </div>
       `;
@@ -365,8 +429,8 @@ export default function Reports() {
       kpiHtml = `
         <div class="kpi-grid">
           <div class="kpi-card kpi-primary"><div class="kpi-val">${formatLKR(grandTotalBilled)}</div><div class="kpi-lbl">Total Billed Revenue</div></div>
-          <div class="kpi-card kpi-success"><div class="kpi-val">${formatLKR(grandCollected)}</div><div class="kpi-lbl">Total Cash Collected</div></div>
-          <div class="kpi-card"><div class="kpi-val">${grandVisits}</div><div class="kpi-lbl">Completed Patient Visits</div></div>
+          <div class="kpi-card kpi-success"><div class="kpi-val">${formatLKR(grandCollected)}</div><div class="kpi-lbl">Net Patient Payments</div></div>
+          <div class="kpi-card"><div class="kpi-val">${grandVisits}</div><div class="kpi-lbl">Invoiced Patient Visits</div></div>
           <div class="kpi-card"><div class="kpi-val">${formatLKR(overallAvg)}</div><div class="kpi-lbl">Avg Revenue / Visit</div></div>
         </div>
       `;
@@ -380,7 +444,7 @@ export default function Reports() {
             return `
               <div style="margin-bottom: 8px;">
                 <div style="display: flex; justify-content: space-between; font-size: 11px; margin-bottom: 2px; font-weight: 600;">
-                  <span>#${i + 1} ${escapeHtml(d.doctor_name)} (${escapeHtml(d.branch_name || 'All Branches')})</span>
+                  <span>#${i + 1} ${escapeHtml(d.doctor_name)} (${escapeHtml(d.branch_name)} • #${escapeHtml(d.branch_id)})</span>
                   <span style="color: #1c7c54;">${formatLKR(d.total_revenue)} (${share}% share)</span>
                 </div>
                 <div style="height: 10px; border-radius: 4px; background: #e2e8f0; overflow: hidden;">
@@ -397,10 +461,10 @@ export default function Reports() {
           <thead>
             <tr>
               <th>Physician</th>
-              <th>Assigned Branch</th>
+              <th>Visit Branch</th>
               <th class="text-center">Visits</th>
               <th class="text-right">Total Billed</th>
-              <th class="text-right">Collected</th>
+              <th class="text-right">Net Patient Payments</th>
               <th class="text-right">Avg / Visit</th>
             </tr>
           </thead>
@@ -408,7 +472,7 @@ export default function Reports() {
             ${filteredDoctor.map(d => `
               <tr>
                 <td style="font-weight: 600; color: #0f2e4f;">${escapeHtml(d.doctor_name)}</td>
-                <td>${escapeHtml(d.branch_name || 'All Branches')}</td>
+                <td>${escapeHtml(d.branch_name)} • #${escapeHtml(d.branch_id)}</td>
                 <td class="text-center">${escapeHtml(d.appointment_count)}</td>
                 <td class="text-right font-bold text-success">${formatLKR(d.total_revenue)}</td>
                 <td class="text-right">${formatLKR(d.collected)}</td>
@@ -492,8 +556,8 @@ export default function Reports() {
         </table>
       `;
     } else if (activeReport === 'treatment') {
-      title = 'CLINICAL PROCEDURES VOLUME & DEPARTMENTAL REVENUE';
-      filterDescription = (appliedFilter.from || appliedFilter.to) ? `Completed visit period: ${appliedFilter.from || 'Start'} to ${appliedFilter.to || 'Present'}` : 'All completed visit dates';
+      title = 'TREATMENT UNITS BY CATEGORY & RECORDED SERVICE VALUE';
+      filterDescription = periodDescription;
       const grandProcedures = filteredTreatment.reduce((acc, t) => acc + Number(t.count || 0), 0);
       const grandRevenue = filteredTreatment.reduce((acc, t) => acc + Number(t.total_revenue || 0), 0);
       const maxCount = Math.max(...filteredTreatment.map(t => Number(t.count) || 0), 1);
@@ -501,9 +565,9 @@ export default function Reports() {
       kpiHtml = `
         <div class="kpi-grid">
           <div class="kpi-card kpi-primary"><div class="kpi-val">${grandProcedures}</div><div class="kpi-lbl">Total Procedures Performed</div></div>
-          <div class="kpi-card kpi-success"><div class="kpi-val">${formatLKR(grandRevenue)}</div><div class="kpi-lbl">Total Procedure Revenue</div></div>
-          <div class="kpi-card"><div class="kpi-val">${new Set(filteredTreatment.map(t => t.category_name)).size}</div><div class="kpi-lbl">Clinical Specialties</div></div>
-          <div class="kpi-card"><div class="kpi-val">${formatLKR(grandProcedures > 0 ? grandRevenue / grandProcedures : 0)}</div><div class="kpi-lbl">Avg Revenue / Procedure</div></div>
+          <div class="kpi-card kpi-success"><div class="kpi-val">${formatLKR(grandRevenue)}</div><div class="kpi-lbl">Recorded Service Value</div></div>
+          <div class="kpi-card"><div class="kpi-val">${treatmentCategories.length}</div><div class="kpi-lbl">Treatment Categories</div></div>
+          <div class="kpi-card"><div class="kpi-val">${formatLKR(grandProcedures > 0 ? grandRevenue / grandProcedures : 0)}</div><div class="kpi-lbl">Avg Service Value / Unit</div></div>
         </div>
       `;
 
@@ -528,19 +592,27 @@ export default function Reports() {
       `;
 
       tableHtml = `
+        <h3>Category totals for matching procedures</h3>
+        <table>
+          <thead><tr><th>Treatment Category</th><th class="text-center">Units Performed</th><th class="text-right">Recorded Service Value</th></tr></thead>
+          <tbody>${treatmentCategories.map(category => `
+            <tr><td>${escapeHtml(category.category_name)} • #${escapeHtml(category.category_id)}</td><td class="text-center">${category.count}</td><td class="text-right">${formatLKR(category.total_revenue)}</td></tr>
+          `).join('')}</tbody>
+        </table>
+        <h3>Procedure detail</h3>
         <table>
           <thead>
             <tr>
-              <th>Specialty Category</th>
+              <th>Treatment Category</th>
               <th>Clinical Procedure</th>
-              <th class="text-center">Usage Count</th>
-              <th class="text-right">Generated Revenue</th>
+              <th class="text-center">Units Performed</th>
+              <th class="text-right">Recorded Service Value</th>
             </tr>
           </thead>
           <tbody>
             ${filteredTreatment.map(t => `
               <tr>
-                <td><span class="badge badge-info">${escapeHtml(t.category_name)}</span></td>
+                <td><span class="badge badge-info">${escapeHtml(t.category_name)} • #${escapeHtml(t.category_id)}</span></td>
                 <td style="font-weight: 600; color: #0f2e4f;">${escapeHtml(t.treatment_name)}</td>
                 <td class="text-center font-bold">${escapeHtml(t.count)}</td>
                 <td class="text-right font-bold text-success">${formatLKR(t.total_revenue)}</td>
@@ -688,12 +760,15 @@ export default function Reports() {
 
         <div class="report-bar">
           <h2>${title}</h2>
-          <span>${escapeHtml(filterDescription)}${searchTerm ? ` • Record filter: ${escapeHtml(searchTerm)}` : ''}</span>
+          <span>${escapeHtml(filterDescription)} • ${escapeHtml(loadedReport.scope)}${activeReport !== 'insurance' && searchTerm ? ` • Record filter: ${escapeHtml(searchTerm)}` : ''}</span>
         </div>
 
         ${kpiHtml}
         ${chartHtml}
         ${tableHtml}
+        <p>${activeReport === 'doctor_revenue' || activeReport === 'outstanding' || activeReport === 'insurance'
+          ? 'Invoice issue dates select the invoices; payments, approvals and balances are current values, not a historical period-end snapshot. Net payments include refunds and adjustments.'
+          : activeReport === 'treatment' ? 'Counts are treatment units on completed appointment dates. Recorded service value uses captured treatment-line prices and does not establish invoicing or payment.' : 'Counts reflect the current appointment status for each appointment day.'}</p>
 
         <div class="footer-section">
           <div>
@@ -862,33 +937,61 @@ export default function Reports() {
                     <Calendar size={15} style={{ color: 'var(--primary)' }} /> Audit Window:
                   </span>
 
-                  {activeReport === 'branch' ? (
+                  {isAdmin ? (
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12 }}>
+                      Branch
+                      {branchError ? (
+                        <input type="number" min="1" step="1" aria-label="Branch ID (blank for all branches)"
+                          className="form-control" style={{ width: 150 }} placeholder="All branches"
+                          value={dateFilter.branch_id} onChange={e => setDateFilter({ ...dateFilter, branch_id: e.target.value })} />
+                      ) : (
+                        <select aria-label="Report branch" className="form-control" style={{ width: 'auto', maxWidth: 220 }}
+                          value={dateFilter.branch_id} onChange={e => setDateFilter({ ...dateFilter, branch_id: e.target.value })}>
+                          <option value="">All branches</option>
+                          {dateFilter.branch_id && !branches.some(branch => String(branch.branch_id) === dateFilter.branch_id) &&
+                            <option value={dateFilter.branch_id}>Branch #{dateFilter.branch_id}</option>}
+                          {branches.map(branch => <option key={branch.branch_id} value={branch.branch_id}>{branch.branch_name} • #{branch.branch_id}</option>)}
+                        </select>
+                      )}
+                    </label>
+                  ) : <span style={{ fontSize: 12 }}>Assigned branch #{user?.branch_id ?? 'unassigned'}</span>}
+
+                  {activeReport === 'branch' && (
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12 }}>
+                    One day (overrides range)
                     <input
+                      aria-label="Appointment day"
                       type="date"
                       className="form-control"
                       style={{ width: 'auto', padding: '6px 10px', fontSize: 13 }}
                       value={dateFilter.date}
                       onChange={e => setDateFilter({ ...dateFilter, date: e.target.value })}
                     />
-                  ) : (
+                    </label>
+                  )}
+                  {(
                     <>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                         <span style={{ fontSize: 12, color: 'var(--gray-500)' }}>From</span>
                         <input
+                          aria-label="Report from date"
                           type="date"
                           className="form-control"
                           style={{ width: 'auto', padding: '6px 10px', fontSize: 13 }}
                           value={dateFilter.from}
+                          disabled={activeReport === 'branch' && !!dateFilter.date}
                           onChange={e => setDateFilter({ ...dateFilter, from: e.target.value })}
                         />
                       </div>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                         <span style={{ fontSize: 12, color: 'var(--gray-500)' }}>To</span>
                         <input
+                          aria-label="Report to date"
                           type="date"
                           className="form-control"
                           style={{ width: 'auto', padding: '6px 10px', fontSize: 13 }}
                           value={dateFilter.to}
+                          disabled={activeReport === 'branch' && !!dateFilter.date}
                           onChange={e => setDateFilter({ ...dateFilter, to: e.target.value })}
                         />
                       </div>
@@ -903,7 +1006,7 @@ export default function Reports() {
                   <button
                     className="btn btn-ghost btn-sm"
                     onClick={() => {
-                      const cleared = { from: '', to: '', date: '' };
+                      const cleared = { from: '', to: '', date: '', branch_id: '' };
                       setDateFilter(cleared);
                       loadReport(activeReport, cleared);
                     }}
@@ -921,6 +1024,7 @@ export default function Reports() {
                       className="form-control"
                       style={{ width: 220, fontSize: 13, padding: '6px 10px 6px 30px' }}
                       value={searchTerm}
+                      disabled={activeReport === 'insurance'}
                       onChange={e => setSearchTerm(e.target.value)}
                     />
                   </div>
@@ -929,6 +1033,11 @@ export default function Reports() {
               <p style={{ margin: '12px 0 0', fontSize: 13, color: 'var(--gray-600)' }}>
                 {activeReport === 'branch' ? 'Dates refer to appointment days.' : activeReport === 'treatment' ? 'Dates refer to completed appointment days.' : 'Dates refer to invoice issue dates; payments and balances reflect their current recorded values.'}
               </p>
+              {branchError && isAdmin && <p role="status" style={{ marginTop: 8, fontSize: 13 }}>{branchError}</p>}
+              {hasLoadedReport && loadedReport && <p role="status" style={{ marginTop: 8, fontSize: 13 }}>
+                Loaded: {describePeriod(loadedReport.type, loadedReport.filter)} • {loadedReport.scope}.
+                {' '}Changing controls takes effect when you choose Run Query.
+              </p>}
             </div>
           </div>
 
@@ -941,7 +1050,7 @@ export default function Reports() {
                 <div key={i} className="skeleton" style={{ height: 68, borderRadius: 'var(--radius)' }} />
               ))}
             </div>
-          ) : !error && loadedReport?.type === activeReport && (
+          ) : !error && hasLoadedReport && (
             <>
               {/* ───────────────────────────────────────────────────────────
                   1. BRANCH APPOINTMENT SUMMARY
@@ -975,7 +1084,7 @@ export default function Reports() {
 
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 1, background: 'var(--gray-200)', borderBottom: '1px solid var(--gray-200)' }}>
                     <div style={{ background: '#ffffff', padding: '16px 20px' }}>
-                      <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--gray-500)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Total Consultations</div>
+                      <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--gray-500)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Total Appointments</div>
                       <div style={{ fontSize: 24, fontWeight: 800, color: 'var(--gray-900)', marginTop: 2 }}>
                         {filteredBranch.reduce((acc, r) => acc + Number(r.total || 0), 0)}
                       </div>
@@ -987,7 +1096,7 @@ export default function Reports() {
                       </div>
                     </div>
                     <div style={{ background: '#ffffff', padding: '16px 20px' }}>
-                      <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--primary)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Active In-Queue</div>
+                      <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--primary)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Scheduled</div>
                       <div style={{ fontSize: 24, fontWeight: 800, color: 'var(--primary)', marginTop: 2 }}>
                         {filteredBranch.reduce((acc, r) => acc + Number(r.scheduled || 0), 0)}
                       </div>
@@ -1131,7 +1240,7 @@ export default function Reports() {
                   <div className="card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--gray-200)', padding: '16px 20px' }}>
                     <div>
                       <h3 className="card-title" style={{ fontSize: 16, color: 'var(--gray-900)' }}>Physician Revenue & Billing Productivity</h3>
-                      <p style={{ fontSize: 12, color: 'var(--gray-500)', marginTop: 2 }}>Invoiced billing totals, cash collection amounts, and average consultation values</p>
+                      <p style={{ fontSize: 12, color: 'var(--gray-500)', marginTop: 2 }}>Invoiced service totals and current net patient payments, including refunds and adjustments</p>
                     </div>
                     <span className="badge badge-primary">{filteredDoctor.length} practitioners</span>
                   </div>
@@ -1144,7 +1253,7 @@ export default function Reports() {
                       </div>
                     </div>
                     <div style={{ background: '#ffffff', padding: '12px 16px', borderRadius: 'var(--radius)', border: '1px solid var(--gray-200)', borderLeft: '4px solid var(--success)' }}>
-                      <div style={{ fontSize: 11, color: 'var(--success)', textTransform: 'uppercase', fontWeight: 700 }}>Collected Cash</div>
+                      <div style={{ fontSize: 11, color: 'var(--success)', textTransform: 'uppercase', fontWeight: 700 }}>Net Patient Payments</div>
                       <div style={{ fontSize: 20, fontWeight: 800, color: 'var(--success)', marginTop: 2 }}>
                         {formatLKR(filteredDoctor.reduce((acc, d) => acc + Number(d.collected ?? NaN), 0))}
                       </div>
@@ -1176,7 +1285,7 @@ export default function Reports() {
                                 </div>
                                 <div style={{ flex: 1 }}>
                                   <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 3 }}>
-                                    <span style={{ fontWeight: 600, color: 'var(--gray-900)' }}>{d.doctor_name} <small style={{ color: 'var(--gray-500)', fontWeight: 400 }}>({d.branch_name})</small></span>
+                                    <span style={{ fontWeight: 600, color: 'var(--gray-900)' }}>{d.doctor_name} <small style={{ color: 'var(--gray-500)', fontWeight: 400 }}>({d.branch_name} • #{d.branch_id})</small></span>
                                     <span style={{ fontWeight: 700, color: 'var(--success)' }}>{formatLKR(d.total_revenue)} <small style={{ color: 'var(--gray-500)', fontWeight: 400 }}>({share}%)</small></span>
                                   </div>
                                   <div style={{ height: 8, borderRadius: 4, background: 'var(--gray-100)', overflow: 'hidden' }}>
@@ -1206,15 +1315,15 @@ export default function Reports() {
                             <th>Branch Location</th>
                             <th style={{ textAlign: 'center' }}>Visits</th>
                             <th style={{ textAlign: 'right' }}>Total Billed</th>
-                            <th style={{ textAlign: 'right' }}>Collected</th>
+                            <th style={{ textAlign: 'right' }}>Net Patient Payments</th>
                             <th style={{ textAlign: 'right' }}>Avg / Visit</th>
                           </tr>
                         </thead>
                         <tbody>
                           {filteredDoctor.map(d => (
-                            <tr key={`${d.doctor_id}-${d.branch_name}`}>
+                            <tr key={`${d.doctor_id}-${d.branch_id}`}>
                               <td style={{ fontWeight: 600, color: 'var(--gray-900)' }}>{d.doctor_name}</td>
-                              <td style={{ color: 'var(--gray-600)' }}>{d.branch_name || 'All Branches'}</td>
+                              <td style={{ color: 'var(--gray-600)' }}>{d.branch_name} • #{d.branch_id}</td>
                               <td style={{ textAlign: 'center' }}>{d.appointment_count}</td>
                               <td style={{ textAlign: 'right', fontWeight: 700, color: 'var(--success)' }}>{formatLKR(d.total_revenue)}</td>
                               <td style={{ textAlign: 'right', fontWeight: 500 }}>{formatLKR(d.collected)}</td>
@@ -1336,32 +1445,48 @@ export default function Reports() {
                 <div className="card">
                   <div className="card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--gray-200)', padding: '16px 20px' }}>
                     <div>
-                      <h3 className="card-title" style={{ fontSize: 16, color: 'var(--gray-900)' }}>Clinical Procedures Volume & Departmental Revenue</h3>
-                      <p style={{ fontSize: 12, color: 'var(--gray-500)', marginTop: 2 }}>Breakdown of clinical services, diagnostic panels, consultations, and departmental gross revenue</p>
+                      <h3 className="card-title" style={{ fontSize: 16, color: 'var(--gray-900)' }}>Treatment Units by Category & Recorded Service Value</h3>
+                      <p style={{ fontSize: 12, color: 'var(--gray-500)', marginTop: 2 }}>Treatment units on completed visits, grouped by catalogue category. Service value uses captured line prices; it does not establish invoicing or payment.</p>
                     </div>
-                    <span className="badge badge-primary">{filteredTreatment.length} procedures</span>
+                    <span className="badge badge-primary">{filteredTreatment.length} procedure types</span>
                   </div>
 
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 14, padding: '18px 20px', background: 'var(--off-white)', borderBottom: '1px solid var(--gray-200)' }}>
                     <div style={{ background: '#ffffff', padding: '12px 16px', borderRadius: 'var(--radius)', border: '1px solid var(--gray-200)', borderLeft: '4px solid var(--primary)' }}>
-                      <div style={{ fontSize: 11, color: 'var(--primary)', textTransform: 'uppercase', fontWeight: 700 }}>Procedures Performed</div>
+                      <div style={{ fontSize: 11, color: 'var(--primary)', textTransform: 'uppercase', fontWeight: 700 }}>Treatment Units Performed</div>
                       <div style={{ fontSize: 20, fontWeight: 800, color: 'var(--primary)', marginTop: 2 }}>
                         {filteredTreatment.reduce((acc, t) => acc + Number(t.count || 0), 0)}
                       </div>
                     </div>
                     <div style={{ background: '#ffffff', padding: '12px 16px', borderRadius: 'var(--radius)', border: '1px solid var(--gray-200)', borderLeft: '4px solid var(--success)' }}>
-                      <div style={{ fontSize: 11, color: 'var(--success)', textTransform: 'uppercase', fontWeight: 700 }}>Departmental Revenue</div>
+                      <div style={{ fontSize: 11, color: 'var(--success)', textTransform: 'uppercase', fontWeight: 700 }}>Recorded Service Value</div>
                       <div style={{ fontSize: 20, fontWeight: 800, color: 'var(--success)', marginTop: 2 }}>
                         {formatLKR(filteredTreatment.reduce((acc, t) => acc + Number(t.total_revenue || 0), 0))}
                       </div>
                     </div>
                     <div style={{ background: '#ffffff', padding: '12px 16px', borderRadius: 'var(--radius)', border: '1px solid var(--gray-200)' }}>
-                      <div style={{ fontSize: 11, color: 'var(--gray-500)', textTransform: 'uppercase', fontWeight: 700 }}>Clinical Specialties</div>
+                      <div style={{ fontSize: 11, color: 'var(--gray-500)', textTransform: 'uppercase', fontWeight: 700 }}>Treatment Categories</div>
                       <div style={{ fontSize: 20, fontWeight: 800, color: 'var(--gray-900)', marginTop: 2 }}>
-                        {new Set(filteredTreatment.map(t => t.category_name)).size}
+                        {treatmentCategories.length}
                       </div>
                     </div>
                   </div>
+
+                  {treatmentCategories.length > 0 && (
+                    <div className="table-container">
+                      <table>
+                        <caption style={{ textAlign: 'left', padding: '12px 20px', fontWeight: 700 }}>Category totals for matching procedures</caption>
+                        <thead><tr><th>Treatment Category</th><th style={{ textAlign: 'center' }}>Units Performed</th><th style={{ textAlign: 'right' }}>Recorded Service Value</th></tr></thead>
+                        <tbody>{treatmentCategories.map(category => (
+                          <tr key={category.category_id}>
+                            <td>{category.category_name} • #{category.category_id}</td>
+                            <td style={{ textAlign: 'center' }}>{category.count}</td>
+                            <td style={{ textAlign: 'right' }}>{formatLKR(category.total_revenue)}</td>
+                          </tr>
+                        ))}</tbody>
+                      </table>
+                    </div>
+                  )}
 
                   {filteredTreatment.length > 0 && (() => {
                     const maxCount = Math.max(...filteredTreatment.map(t => Number(t.count) || 0), 1);
@@ -1377,7 +1502,7 @@ export default function Reports() {
                               <div key={idx}>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 3 }}>
                                   <span style={{ fontWeight: 600, color: 'var(--gray-900)' }}>{t.treatment_name} <small style={{ color: 'var(--gray-500)' }}>({t.category_name})</small></span>
-                                  <span style={{ fontWeight: 700, color: 'var(--primary)' }}>{t.count} visits • {formatLKR(t.total_revenue)}</span>
+                                  <span style={{ fontWeight: 700, color: 'var(--primary)' }}>{t.count} units • {formatLKR(t.total_revenue)}</span>
                                 </div>
                                 <div style={{ height: 8, borderRadius: 4, background: 'var(--gray-100)', overflow: 'hidden' }}>
                                   <div style={{ width: `${barW}%`, height: '100%', background: '#0f4575', borderRadius: 4, transition: 'width 0.4s ease' }} />
@@ -1401,16 +1526,16 @@ export default function Reports() {
                       <table>
                         <thead>
                           <tr>
-                            <th>Specialty Category</th>
+                            <th>Treatment Category</th>
                             <th>Procedure Name</th>
-                            <th style={{ textAlign: 'center' }}>Usage Count</th>
-                            <th style={{ textAlign: 'right' }}>Total Revenue</th>
+                            <th style={{ textAlign: 'center' }}>Units Performed</th>
+                            <th style={{ textAlign: 'right' }}>Recorded Service Value</th>
                           </tr>
                         </thead>
                         <tbody>
-                          {filteredTreatment.map((t, idx) => (
-                            <tr key={idx}>
-                              <td><span className="badge badge-info">{t.category_name}</span></td>
+                          {filteredTreatment.map(t => (
+                            <tr key={`${t.category_id}-${t.treatment_id}`}>
+                              <td><span className="badge badge-info">{t.category_name} • #{t.category_id}</span></td>
                               <td style={{ fontWeight: 600, color: 'var(--gray-900)' }}>{t.treatment_name}</td>
                               <td style={{ textAlign: 'center', fontWeight: 700, color: 'var(--primary)' }}>{t.count}</td>
                               <td style={{ textAlign: 'right', fontWeight: 600, color: 'var(--success)' }}>{formatLKR(t.total_revenue)}</td>
