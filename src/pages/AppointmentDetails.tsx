@@ -46,6 +46,10 @@ export default function AppointmentDetails() {
     setIsLoading(true);
     setLoadError('');
     setRelatedError('');
+    setNotes([]);
+    setRecorded([]);
+    setCatalogue([]);
+    setInvoice(null);
     try {
       const a = await appointmentService.getById(apptId);
       if (version !== loadVersion.current) return;
@@ -73,6 +77,10 @@ export default function AppointmentDetails() {
   };
 
   useEffect(() => {
+    setNoteText('');
+    setTxForm({ treatment_id: '', quantity: 1 });
+    setShowReschedule(false);
+    setMessage(null);
     if (id) void load();
     return () => { loadVersion.current++; };
   }, [id]);
@@ -83,15 +91,17 @@ export default function AppointmentDetails() {
   };
 
   const run = async (action: () => Promise<unknown>, success: string) => {
-    if (actionPending.current) return;
+    if (actionPending.current) return false;
     actionPending.current = true;
     setBusy(true);
     try {
       await action();
       flash('success', success);
       await load();
+      return true;
     } catch (err) {
       flash('error', appointmentActionError(err));
+      return false;
     } finally {
       setBusy(false);
       actionPending.current = false;
@@ -104,14 +114,12 @@ export default function AppointmentDetails() {
   };
 
   const handleAddNote = async () => {
-    if (!noteText.trim()) return;
+    if (!noteText.trim() || actionPending.current) return;
     setAddingNote(true);
     try {
-      const note = await appointmentService.addNote(apptId, { note_content: noteText });
-      setNotes([...notes, note]);
-      setNoteText('');
-    } catch (err) {
-      flash('error', apiErrorMessage(err));
+      if (await run(() => appointmentService.addNote(apptId, { note_content: noteText }), 'Consultation note recorded.')) {
+        setNoteText('');
+      }
     } finally { setAddingNote(false); }
   };
 
@@ -155,6 +163,7 @@ export default function AppointmentDetails() {
   const isTreatingDoctor = isDoctor && appt.doctor_id === user?.doctor_id;
   const unbilled = !appt.invoice_id && !invoice;
   const canManage = isStaff && unbilled && !relatedError;
+  const hasCompletionEvidence = recorded.length > 0 || notes.length > 0 || !!appt.treatment_id;
   const canComplete = isScheduled && unbilled && !relatedError && appt.appointment_date <= today && (isStaff || isTreatingDoctor);
   // Treatments are recorded during the visit (before or after completion) until it is billed;
   // the database only lets a visit be completed once a treatment or note exists.
@@ -184,7 +193,7 @@ export default function AppointmentDetails() {
                 {statusBadge(appt.status)}
                 <span className="badge badge-info">{appt.appointment_type}</span>
                 {canComplete && (
-                  <button className="btn btn-primary btn-sm" disabled={busy}
+                  <button className="btn btn-primary btn-sm" disabled={busy || (canViewNotes && !hasCompletionEvidence)}
                     onClick={async () => {
                       if (await confirmAction('Mark this appointment as completed?', { title: 'Complete appointment', confirmLabel: 'Mark completed' })) {
                         await run(() => appointmentService.complete(apptId), 'Appointment marked as completed.');
@@ -264,9 +273,15 @@ export default function AppointmentDetails() {
               <span className="badge badge-gray">{recorded.length}</span>
             </div>
             <div className="card-body">
-              {!isCompleted && (
+              {appt.status === 'Cancelled' ? (
+                <p className="text-gray-400 text-sm mb-3">This appointment was cancelled.</p>
+              ) : (
                 <p className="text-gray-400 text-sm mb-3">
-                  {appt.status === 'Cancelled' ? 'This appointment was cancelled.' : 'Record the treatments given (or add a consultation note), then mark the appointment as completed.'}
+                  {!unbilled
+                    ? 'Treatments and consultation notes are locked because the invoice has been generated.'
+                    : isCompleted
+                    ? 'Treatments and consultation notes can still be recorded until the invoice is generated.'
+                    : 'Record at least one treatment or consultation note before completing the visit. You can continue recording after completion until invoicing.'}
                 </p>
               )}
               {recorded.length > 0 && (
@@ -298,28 +313,29 @@ export default function AppointmentDetails() {
               )}
               {canRecordTreatments && (
                 <form className="flex gap-2 flex-wrap items-end"
-                  onSubmit={e => {
+                  onSubmit={async e => {
                     e.preventDefault();
-                    if (!txForm.treatment_id) return;
-                    run(() => appointmentService.addTreatment(apptId, { treatment_id: Number(txForm.treatment_id), quantity: txForm.quantity }), 'Treatment recorded.')
-                      .then(() => setTxForm({ treatment_id: '', quantity: 1 }));
+                    if (!txForm.treatment_id || !Number.isInteger(txForm.quantity) || txForm.quantity < 1 || txForm.quantity > 2147483647) return;
+                    if (await run(() => appointmentService.addTreatment(apptId, { treatment_id: Number(txForm.treatment_id), quantity: txForm.quantity }), 'Treatment recorded.')) {
+                      setTxForm({ treatment_id: '', quantity: 1 });
+                    }
                   }}
                 >
                   <div className="form-group flex-1 min-w-55 mb-0">
                     <label className="form-label">Add treatment from catalogue</label>
                     <select className="form-control" required value={txForm.treatment_id} onChange={e => setTxForm({ ...txForm, treatment_id: e.target.value })}>
                       <option value="">Select treatment...</option>
-                      {catalogue.map(t => <option key={t.treatment_id} value={t.treatment_id}>{t.service_code} · {t.treatment_name} (Rs. {Number(t.standard_price).toLocaleString()})</option>)}
+                      {catalogue.filter(t => !recorded.some(r => r.treatment_id === t.treatment_id)).map(t => <option key={t.treatment_id} value={t.treatment_id}>{t.service_code} · {t.treatment_name} (Rs. {Number(t.standard_price).toLocaleString()})</option>)}
                     </select>
                   </div>
                   <div className="form-group w-22.5 mb-0">
                     <label className="form-label">Qty</label>
-                    <input type="number" min={1} className="form-control" value={txForm.quantity} onChange={e => setTxForm({ ...txForm, quantity: Math.max(1, Number(e.target.value) || 1) })} />
+                    <input type="number" required min={1} max={2147483647} step={1} className="form-control" value={txForm.quantity} onChange={e => setTxForm({ ...txForm, quantity: Number(e.target.value) })} />
                   </div>
                   <button type="submit" className="btn btn-primary" disabled={busy || !txForm.treatment_id}>Add</button>
                 </form>
               )}
-              {invoice && (
+              {!unbilled && (
                 <p className="text-xs text-gray-400">Treatments are locked because the invoice has been generated.</p>
               )}
             </div>
@@ -347,7 +363,7 @@ export default function AppointmentDetails() {
               {canAddNotes && (
                 <div className="flex gap-2">
                   <textarea className="form-control flex-1" placeholder="Add a consultation note..." value={noteText} onChange={e => setNoteText(e.target.value)} rows={3} />
-                  <button className="btn btn-primary self-end" onClick={handleAddNote} disabled={addingNote || !noteText.trim()}>
+                  <button className="btn btn-primary self-end" onClick={handleAddNote} disabled={busy || addingNote || !noteText.trim()}>
                     {addingNote ? <span className="spinner border-2 size-3.5" /> : 'Add'}
                   </button>
                 </div>

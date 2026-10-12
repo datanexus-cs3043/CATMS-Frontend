@@ -5,7 +5,7 @@ import {
   apiErrorMessage, Appointment, Patient, Doctor, Branch, Treatment
 } from '../services/api';
 import { useAuth } from '../auth/AuthContext';
-import { localDate } from '../utils/date';
+import { localDate, clinicTime } from '../utils/date';
 import { useDialog } from '../components/DialogProvider';
 import { appointmentActionError } from '../utils/appointmentActionError';
 
@@ -17,12 +17,8 @@ const typeBadge = (type: string) => {
 export const statusBadge = (status?: string) => {
   if (status === 'Completed') return <span className="badge badge-success">Completed</span>;
   if (status === 'Cancelled') return <span className="badge badge-danger">Cancelled</span>;
-  return <span className="badge badge-primary">Scheduled</span>;
-};
-
-const nowHHMM = (offsetMinutes = 0) => {
-  const d = new Date(Date.now() + offsetMinutes * 60000);
-  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+  if (status === 'Scheduled') return <span className="badge badge-primary">Scheduled</span>;
+  return <span className="badge badge-gray">{status || 'Unknown'}</span>;
 };
 
 const emptyForm = (walkIn: boolean, patientId?: number, doctorId?: number, branchId?: number): Partial<Appointment> => ({
@@ -30,14 +26,16 @@ const emptyForm = (walkIn: boolean, patientId?: number, doctorId?: number, branc
   doctor_id: doctorId,
   branch_id: branchId,
   appointment_date: localDate(0),
-  start_time: walkIn ? nowHHMM() : '09:00',
-  end_time: walkIn ? nowHHMM(30) : '09:30',
+  start_time: walkIn ? clinicTime() : '09:00',
+  end_time: walkIn ? clinicTime(30) : '09:30',
   appointment_type: walkIn ? 'Walk-in' : 'Consultation',
 });
 
 export default function Appointments() {
   const navigate = useNavigate();
   const { user } = useAuth();
+  const canBook = user?.user_type === 'staff' && ['admin', 'branch_manager', 'doctor', 'receptionist_cashier'].includes(user.role);
+  const canListBranches = user?.user_type === 'staff' && ['admin', 'branch_manager', 'receptionist_cashier'].includes(user.role);
   const { confirmAction } = useDialog();
   const [searchParams, setSearchParams] = useSearchParams();
 
@@ -54,7 +52,7 @@ export default function Appointments() {
   const [filterStatus, setFilterStatus] = useState('');
   const [showModal, setShowModal] = useState(false);
   const [walkIn, setWalkIn] = useState(false);
-  const [form, setForm] = useState<Partial<Appointment>>(emptyForm(false, undefined, undefined, user?.branch_id || 1));
+  const [form, setForm] = useState<Partial<Appointment>>(emptyForm(false, undefined, undefined, user?.branch_id ?? undefined));
   const [submitting, setSubmitting] = useState(false);
   const submittingRef = useRef(false);
   const [lookupsLoading, setLookupsLoading] = useState(false);
@@ -73,7 +71,7 @@ export default function Appointments() {
     const pid = searchParams.get('patient_id') ? Number(searchParams.get('patient_id')) : undefined;
     const did = searchParams.get('doctor_id') ? Number(searchParams.get('doctor_id')) : undefined;
     const isWalkIn = searchParams.get('walkin') === '1';
-    if (pid || did || isWalkIn || searchParams.get('new') === '1') {
+    if (canBook && (pid || did || isWalkIn || searchParams.get('new') === '1')) {
       openModal(isWalkIn, pid, did);
       setSearchParams({}, { replace: true });
     }
@@ -105,7 +103,7 @@ export default function Appointments() {
     try {
       const [appts, brs] = await Promise.all([
         appointmentService.getAll(),
-        refreshBranches ? branchService.getAll() : Promise.resolve(branches),
+        refreshBranches && canListBranches ? branchService.getAll() : Promise.resolve(branches),
       ]);
       if (version !== listVersion.current) return;
       setAppointments(appts);
@@ -116,9 +114,10 @@ export default function Appointments() {
   };
 
   const openModal = (asWalkIn: boolean, patientId?: number, doctorId?: number) => {
+    if (!canBook) return;
     setWalkIn(asWalkIn);
     const doc = doctorId ? doctors.find(d => d.doctor_id === doctorId) : undefined;
-    const branchId = doc?.branch_id || user?.branch_id || 1;
+    const branchId = doc?.branch_id ?? user?.branch_id ?? undefined;
     setForm(emptyForm(asWalkIn, patientId, doctorId, branchId));
     setError('');
     setShowModal(true);
@@ -136,9 +135,14 @@ export default function Appointments() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (submittingRef.current || lookupsLoading || lookupsError) return;
+    if (!canBook || submittingRef.current || lookupsLoading || lookupsError) return;
     if (!form.patient_id || !form.doctor_id || !form.branch_id || !form.appointment_date || !form.start_time || !form.end_time || form.start_time >= form.end_time) {
       setError('Choose a patient and doctor, and an end time after the start time.');
+      return;
+    }
+    const doctor = doctors.find(d => d.doctor_id === form.doctor_id);
+    if (!doctor?.branch_id || doctor.branch_id !== form.branch_id) {
+      setError('Choose a doctor with a valid branch before booking.');
       return;
     }
     submittingRef.current = true;
@@ -163,7 +167,7 @@ export default function Appointments() {
   };
 
   const handleCancel = async (appt: Appointment) => {
-    if (cancelPending.current) return;
+    if (!canBook || cancelPending.current) return;
     cancelPending.current = true;
     try {
       if (!await confirmAction(`Cancel appointment #${appt.appointment_id} for ${appt.patient_name || `patient #${appt.patient_id}`}?`, {
@@ -193,6 +197,7 @@ export default function Appointments() {
       {successMsg && <div className="alert alert-success" role="status">{successMsg}</div>}
       {actionError && <div className="alert alert-error" role="alert">{actionError}</div>}
       {listError && <div className="alert alert-error" role="alert">{listError}</div>}
+      {!canBook && <div className="alert alert-info">Please contact clinic staff to book, cancel or reschedule a visit.</div>}
 
       <div className="flex gap-3 mb-5 flex-wrap">
         {[
@@ -236,10 +241,10 @@ export default function Appointments() {
             <option>Emergency</option>
             <option>Walk-in</option>
           </select>
-          <button className="btn btn-danger" onClick={() => openModal(true)}>Walk-in</button>
-          <button className="btn btn-primary" onClick={() => openModal(false)}>
+          {canBook && <button className="btn btn-danger" onClick={() => openModal(true)}>Walk-in</button>}
+          {canBook && <button className="btn btn-primary" onClick={() => openModal(false)}>
             Book Appointment
-          </button>
+          </button>}
         </div>
       </div>
 
@@ -251,7 +256,7 @@ export default function Appointments() {
         ) : filtered.length === 0 ? (
           <div className="empty-state">
             <p className="empty-state-title">No appointments found</p>
-            <button className="btn btn-primary" onClick={() => openModal(false)}>Book Appointment</button>
+            {canBook && <button className="btn btn-primary" onClick={() => openModal(false)}>Book Appointment</button>}
           </div>
         ) : (
           <div className="table-container">
@@ -291,7 +296,7 @@ export default function Appointments() {
                     <td onClick={e => e.stopPropagation()}>
                       <div className="flex gap-1.5">
                         <button className="btn btn-secondary btn-sm" onClick={() => navigate(`/appointments/${appt.appointment_id}`)}>View</button>
-                        {appt.status === 'Scheduled' && (
+                        {canBook && appt.status === 'Scheduled' && !appt.invoice_id && (
                           <button className="btn btn-ghost btn-sm" disabled={cancellingId !== null} onClick={() => handleCancel(appt)}>
                             {cancellingId === appt.appointment_id ? 'Cancelling…' : 'Cancel'}
                           </button>
@@ -341,7 +346,7 @@ export default function Appointments() {
                         setForm({
                           ...form,
                           doctor_id: docId,
-                          branch_id: doc?.branch_id || form.branch_id || user?.branch_id || 1,
+                          branch_id: doc?.branch_id ?? undefined,
                         });
                       }}
                     >
