@@ -361,8 +361,8 @@ const needsCsrf = (cfg: InternalAxiosRequestConfig): boolean =>
   !(cfg.url || '').startsWith('/auth/') &&
   !cfg.headers.has('X-CSRF-Token');
 
-const isCsrfRejection = (error: any): boolean =>
-  error?.response?.status === 403 &&
+const isCsrfRejection = (error: unknown): boolean =>
+  axios.isAxiosError(error) && error.response?.status === 403 &&
   String(error.response.data?.detail || '').toLowerCase().includes('csrf');
 
 api.interceptors.request.use(async (cfg: InternalAxiosRequestConfig) => {
@@ -389,9 +389,9 @@ api.interceptors.response.use(
 );
 
 /** Extract a readable message from an API error. */
-export const apiErrorMessage = (err: any, fallback = 'Something went wrong. Please try again.'): string => {
+export const apiErrorMessage = (err: unknown, fallback = 'Something went wrong. Please try again.'): string => {
   if (err instanceof PaymentOutcomeError) return err.message;
-  const detail = err?.response?.data?.detail;
+  const detail = axios.isAxiosError(err) ? err.response?.data?.detail : undefined;
   if (typeof detail === 'string') return detail;
   if (Array.isArray(detail) && detail[0]?.msg) return detail[0].msg;
   return fallback;
@@ -498,16 +498,13 @@ const del = async <T>(url: string): Promise<T> => {
 // ── Branch Service ─────────────────────────────────────────────────────────────
 export const branchService = {
   getAll: () => get<Branch[]>('/branches'),
-  getById: (id: number) => get<Branch>(`/branches/${id}`),
   create: (data: Partial<Branch>) => post<Branch>('/branches', data),
   update: (id: number, data: Partial<Branch>) => put<Branch>(`/branches/${id}`, data),
-  delete: (id: number) => del(`/branches/${id}`),
 };
 
 // ── Staff Service ──────────────────────────────────────────────────────────────
 export const staffService = {
   getAll: (params?: { branch_id?: number; role?: string }) => get<Staff[]>('/staff', params as Record<string, unknown>),
-  getById: (id: number) => get<Staff>(`/staff/${id}`),
   create: (data: Partial<Staff>) => post<Staff>('/staff', data),
   update: async (id: number, data: Partial<Staff>) => {
     const { csrf_token } = await authService.getCsrfToken();
@@ -518,7 +515,6 @@ export const staffService = {
     });
     return res.data;
   },
-  delete: (id: number) => del(`/staff/${id}`),
 };
 
 // ── Doctor Service ─────────────────────────────────────────────────────────────
@@ -581,22 +577,12 @@ export const doctorService = {
     if (doctor.doctor_id !== id) throw new Error('Doctor response does not match the updated profile');
     return doctor;
   },
-  delete: (id: number) => del(`/doctors/${id}`),
-};
-
-// ── Specialty Service ─────────────────────────────────────────────────────────
-export const specialtyService = {
-  getAll: () => get<Specialty[]>('/specialties'),
-  getById: (id: number) => get<Specialty>(`/specialties/${id}`),
-  create: (data: Partial<Specialty>) => post<Specialty>('/specialties', data),
-  update: (id: number, data: Partial<Specialty>) => put<Specialty>(`/specialties/${id}`, data),
 };
 
 // ── Treatment Service ─────────────────────────────────────────────────────────
 export const treatmentService = {
   getAll: (params?: { category_id?: number; search?: string }) =>
     get<Treatment[]>('/treatments', params as Record<string, unknown>),
-  getById: (id: number) => get<Treatment>(`/treatments/${id}`),
   getCategories: () => get<TreatmentCategory[]>('/treatment-categories'),
   createCategory: (data: { category_name: string; description?: string | null }) =>
     post<TreatmentCategory>('/treatment-categories', data),
@@ -614,7 +600,6 @@ export const patientService = {
   create: (data: Partial<Patient> & { portal_username?: string; emergency_contact?: Pick<EmergencyContact, 'contact_name' | 'relationship' | 'phone'> }) =>
     post<Patient & { portal_username?: string | null }>('/patients', data),
   update: (id: number, data: Partial<Patient>) => put<Patient>(`/patients/${id}`, data),
-  getEmergencyContacts: (id: number) => get<EmergencyContact[]>(`/patients/${id}/emergency-contacts`),
   addEmergencyContact: (id: number, data: Partial<EmergencyContact>) =>
     post<EmergencyContact>(`/patients/${id}/emergency-contacts`, data),
   deleteEmergencyContact: (patientId: number, contactId: number) =>
@@ -634,10 +619,7 @@ export const insuranceService = {
       (params?.patient_id === undefined || p.patient_id === params.patient_id) &&
       (params?.status === undefined || p.status === params.status));
   },
-  getPolicyById: (id: number) => get<InsurancePolicy>(`/insurance/policies/${id}`),
   createPolicy: (data: Partial<InsurancePolicy>) => post<InsurancePolicy>('/insurance/policies', data),
-  updatePolicy: (id: number, data: Partial<InsurancePolicy>) =>
-    put<InsurancePolicy>(`/insurance/policies/${id}`, data),
   getCoverageByPolicy: async (policyId: number) => {
     const coverages = await get<InsuranceCoverage[]>('/insurance/coverage');
     return coverages.filter(c => c.policy_id === policyId);
@@ -650,7 +632,6 @@ export const insuranceService = {
       (params?.invoice_id === undefined || c.invoice_id === params.invoice_id) &&
       (params?.status === undefined || c.status === params.status));
   },
-  getClaimById: (id: number) => get<InsuranceClaim>(`/insurance/claims/${id}`),
   createClaim: (data: Partial<InsuranceClaim>) => post<InsuranceClaim>('/insurance/claims', data),
   updateClaim: (id: number, data: Partial<InsuranceClaim>) =>
     put<InsuranceClaim>(`/insurance/claims/${id}`, data),
@@ -684,7 +665,6 @@ export const appointmentService = {
     appointment_date: data.appointment_date, start_time: data.start_time, end_time: data.end_time,
     treatment_id: data.treatment_id,
   }),
-  update: (id: number, data: Partial<Appointment>) => put<Appointment>(`/appointments/${id}`, data),
   cancel: async (id: number): Promise<Appointment> => {
     const res = await api.put<Appointment>(`/appointments/${id}/cancel`, undefined, { timeout: 15000 });
     return res.data;
@@ -703,18 +683,16 @@ export const invoiceService = {
   getById: (id: number) => get<Invoice>(`/invoices/${id}`),
   /** Generate the invoice for a completed appointment from its recorded treatments. */
   generate: (appointmentId: number) => post<Invoice>('/invoices/generate', { appointment_id: appointmentId }),
-  update: (id: number, data: Partial<Invoice>) => put<Invoice>(`/invoices/${id}`, data),
   getItems: (id: number) => get<InvoiceItem[]>(`/invoices/${id}/items`),
-  addItem: (id: number, data: Partial<InvoiceItem>) =>
-    post<InvoiceItem>(`/invoices/${id}/items`, data),
   /** Record a patient payment, then return the invoice with its new balance/status. */
   makePayment: async (id: number, data: { amount: number; method?: string; reference?: string }) => {
     try {
       await post<Payment>(`/invoices/${id}/patient-payments`, {
         amount: data.amount, payment_method: data.method || 'Cash', reference_number: data.reference || null,
       });
-    } catch (error: any) {
-      if (error?.response?.status >= 400 && error.response.status < 500) throw error;
+    } catch (error: unknown) {
+      const status = axios.isAxiosError(error) ? error.response?.status : undefined;
+      if (status !== undefined && status >= 400 && status < 500) throw error;
       throw new PaymentOutcomeError('unknown');
     }
     try { return await get<Invoice>(`/invoices/${id}`); }

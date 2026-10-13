@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   reportsService,
   branchService,
+  apiErrorMessage,
   Branch,
   BranchAppointmentSummary,
   DoctorRevenueReport,
@@ -173,11 +174,8 @@ export default function Reports() {
       const scope = !isAdmin ? `Assigned branch #${user?.branch_id}` : appliedFilter.branch_id
         ? `Branch #${appliedFilter.branch_id}${branch ? ` (${branch.branch_name})` : ''}` : 'All branches';
       if (isCurrent()) setLoadedReport({ type, filter: appliedFilter, owner: reportOwner, scope });
-    } catch (err: any) {
-      if (isCurrent()) {
-        const detail = err?.response?.data?.detail;
-        setError(typeof detail === 'string' ? detail : 'Could not retrieve report from the database.');
-      }
+    } catch (err: unknown) {
+      if (isCurrent()) setError(apiErrorMessage(err, 'Could not retrieve report from the database.'));
     } finally {
       if (isCurrent()) setIsLoading(false);
     }
