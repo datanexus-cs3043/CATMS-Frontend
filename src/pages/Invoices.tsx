@@ -63,7 +63,8 @@ export default function Invoices() {
       ]);
       if (version !== loadVersion.current) return;
       setInvoices(invs);
-      setBillable(completed.filter(a => !a.invoice_id));
+      // The backend only lets staff of the appointment's branch issue its invoice.
+      setBillable(completed.filter(a => !a.invoice_id && a.branch_id === user?.branch_id));
     } catch (err) {
       if (version === loadVersion.current) setLoadError(apiErrorMessage(err, 'Could not load invoices. Please retry.'));
     } finally { if (version === loadVersion.current) setIsLoading(false); }
@@ -302,7 +303,7 @@ export default function Invoices() {
                 </div>
                 {generateError && <div className="alert alert-error">{generateError}</div>}
                 {billable.length === 0 ? (
-                  <p style={{ color: 'var(--gray-500)', fontSize: 14 }}>All completed appointments already have invoices. Mark an appointment as completed first.</p>
+                  <p style={{ color: 'var(--gray-500)', fontSize: 14 }}>No completed appointment in your branch is waiting for an invoice. Invoices are issued by staff of the appointment's branch.</p>
                 ) : (
                   <div className="form-group">
                     <label className="form-label">Completed appointment *</label>

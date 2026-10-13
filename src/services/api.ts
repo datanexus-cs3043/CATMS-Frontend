@@ -168,6 +168,7 @@ export interface Appointment {
   end_time: string;
   appointment_type: string;
   created_by: string;
+  created_by_name?: string | null;
   original_appointment_id?: number | null;
   treatment_id?: number | null;
   status: 'Scheduled' | 'Completed' | 'Cancelled' | string;
