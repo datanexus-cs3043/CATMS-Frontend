@@ -25,17 +25,18 @@ export interface LoginResponse {
   token_type?: string;
 }
 
-export interface RegisterRequest {
-  first_name: string;
-  last_name: string;
-  email: string;
+export interface User {
+  user_id: number;
   username: string;
-  password: string;
+  first_name?: string;
+  last_name?: string;
+  email?: string;
   contact_details?: string;
-  date_of_birth: string;
-  gender: string;
-  address?: string;
-  branch_id: number;
+}
+
+export interface PasswordResetResponse {
+  user_id: number;
+  message: string;
 }
 
 // ── Domain Types ─────────────────────────────────────────────────────────────
@@ -45,6 +46,13 @@ export interface Branch {
   location: string;
   contact_details?: string;
   manager_staff_id?: number | null;
+}
+
+export interface ClinicDirectory {
+  branches: Pick<Branch, 'branch_id' | 'branch_name' | 'location' | 'contact_details'>[];
+  specialties: { specialty_id: number; specialty_name: string; description?: string | null }[];
+  doctor_count: number;
+  service_count: number;
 }
 
 export interface Staff {
@@ -57,6 +65,7 @@ export interface Staff {
   email: string;
   staff_type: string;
   role: string;
+  username?: string;
   branch_name?: string;
 }
 
@@ -111,8 +120,9 @@ export interface Patient {
   contact_details?: string;
   email?: string;
   address?: string;
-  user_id: number;
+  user_id?: number | null;
   branch_name?: string;
+  emergency_contacts?: EmergencyContact[];
 }
 
 export interface EmergencyContact {
@@ -131,6 +141,7 @@ export interface InsuranceProvider {
 
 export interface InsurancePolicy {
   policy_id: number;
+  branch_id?: number | null;
   patient_id: number;
   provider_id: number;
   policy_number: number;
@@ -139,6 +150,7 @@ export interface InsurancePolicy {
   status: string;
   provider_name?: string;
   patient_name?: string;
+  coverages?: InsuranceCoverage[];
 }
 
 export interface InsuranceCoverage {
@@ -209,13 +221,17 @@ export interface Invoice {
   appointment_date?: string;
 }
 
+/** Money a patient paid towards an invoice (backend `patient_payment`). */
 export interface Payment {
   payment_id: number;
   invoice_id: number;
   amount: number;
-  method: string;
+  payment_method: string;
   payment_date: string;
-  received_by: string;
+  payment_type: string;
+  reference_number?: string | null;
+  received_by_name?: string | null;
+  patient_id?: number;
   patient_name?: string;
 }
 
@@ -289,18 +305,18 @@ export interface OutstandingPatient {
 }
 
 export interface InsuranceSummary {
-  total_claims: number;
-  total_billed?: number;
-  out_of_pocket_paid?: number;
-  approved_amount: number;
-  out_of_pocket: number;
-  pending_amount: number;
+  invoiced_amount: number;
+  insurance_approved_amount: number;
+  patient_paid_amount: number;
+  out_of_pocket_amount: number;
+  outstanding_amount: number;
 }
 
 // ── Axios Instance ────────────────────────────────────────────────────────────
 const api = axios.create({
   baseURL: import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api',
   withCredentials: true,
+  timeout: 20000,
   headers: { 'Content-Type': 'application/json' },
 });
 
@@ -311,22 +327,29 @@ const api = axios.create({
 const CSRF_METHODS = ['post', 'put', 'patch', 'delete'];
 let csrfToken: string | null = null;
 let csrfRequest: Promise<string> | null = null;
+let csrfGeneration = 0;
+// Coalesce only simultaneous reads, not a persistent cache of medical records.
+const pendingReads = new Map<string, Promise<unknown>>();
 
 const clearCsrfToken = () => {
+  csrfGeneration++;
   csrfToken = null;
   csrfRequest = null;
+  pendingReads.clear();
 };
 
 const fetchCsrfToken = (): Promise<string> => {
   if (csrfToken) return Promise.resolve(csrfToken);
   if (!csrfRequest) {
+    const generation = csrfGeneration;
     const request: Promise<string> = api
       .get<{ csrf_token: string }>('/auth/csrf', { timeout: 15000 })
       .then((res: AxiosResponse<{ csrf_token: string }>) => {
+        if (generation !== csrfGeneration) throw new Error('The session changed while requesting CSRF protection. Please try again.');
         csrfToken = res.data.csrf_token;
         return res.data.csrf_token;
       })
-      .finally(() => { csrfRequest = null; });
+      .finally(() => { if (csrfRequest === request) csrfRequest = null; });
     csrfRequest = request;
     return request;
   }
@@ -349,7 +372,11 @@ api.interceptors.request.use(async (cfg: InternalAxiosRequestConfig) => {
 
 // Expired or stale CSRF token: get a fresh one and retry the request once.
 api.interceptors.response.use(
-  res => res,
+  res => {
+    // Reads that began before an acknowledged write must not serve its refresh.
+    if (CSRF_METHODS.includes((res.config.method || 'get').toLowerCase())) pendingReads.clear();
+    return res;
+  },
   async (error) => {
     if (isCsrfRejection(error) && error.config && !error.config._csrfRetried) {
       clearCsrfToken();
@@ -363,11 +390,22 @@ api.interceptors.response.use(
 
 /** Extract a readable message from an API error. */
 export const apiErrorMessage = (err: any, fallback = 'Something went wrong. Please try again.'): string => {
+  if (err instanceof PaymentOutcomeError) return err.message;
   const detail = err?.response?.data?.detail;
   if (typeof detail === 'string') return detail;
   if (Array.isArray(detail) && detail[0]?.msg) return detail[0].msg;
   return fallback;
 };
+
+/** Do not turn a committed receipt or uncertain network outcome into a retry prompt. */
+export class PaymentOutcomeError extends Error {
+  constructor(public readonly outcome: 'recorded' | 'unknown') {
+    super(outcome === 'recorded'
+      ? 'The payment was recorded, but the updated invoice could not be loaded. Check the receipt history and refresh before entering any further payment.'
+      : 'The payment outcome could not be confirmed. Check the receipt history and current balance before retrying; do not submit the same payment again until it is reconciled.');
+    this.name = 'PaymentOutcomeError';
+  }
+}
 
 // ── Auth Service ──────────────────────────────────────────────────────────────
 const isAuthUser = (value: unknown): value is AuthUser => {
@@ -381,14 +419,11 @@ const isAuthUser = (value: unknown): value is AuthUser => {
 };
 
 export const authService = {
+  // The API retains the username key for compatibility; its value may be username or account email.
   login: async (credentials: { username: string; password: string }): Promise<LoginResponse> => {
     clearCsrfToken();
     const res = await api.post<LoginResponse>('/auth/login', credentials, { timeout: 15000 });
     if (!isAuthUser(res.data?.user)) throw new Error('Invalid sign-in response');
-    return res.data;
-  },
-  register: async (data: RegisterRequest): Promise<LoginResponse> => {
-    const res = await api.post<LoginResponse>('/auth/register', data);
     return res.data;
   },
   getMe: async (): Promise<AuthUser> => {
@@ -407,10 +442,45 @@ export const authService = {
   },
 };
 
+// ── User account service ─────────────────────────────────────────────────────
+export const userService = {
+  changePassword: (data: { current_password: string; new_password: string }) =>
+    post<PasswordResetResponse>('/users/change-password', data),
+  list: () => get<User[]>('/users'),
+  resetPassword: (userId: number) =>
+    post<PasswordResetResponse>(`/users/${userId}/reset-password`, {}),
+};
+
 // ── Generic CRUD helpers ──────────────────────────────────────────────────────
 const get = async <T>(url: string, params?: Record<string, unknown>): Promise<T> => {
-  const res = await api.get<T>(url, { params });
-  return res.data;
+  const key = JSON.stringify([url, Object.entries(params || {}).sort(([a], [b]) => a.localeCompare(b))]);
+  const pending = pendingReads.get(key);
+  if (pending) return pending as Promise<T>;
+  const request = api.get<T>(url, { params }).then(res => res.data);
+  pendingReads.set(key, request);
+  try { return await request; }
+  finally { if (pendingReads.get(key) === request) pendingReads.delete(key); }
+};
+
+/** Only for endpoints that actually implement skip/limit, with stable unique IDs. */
+const getPages = async <T>(url: string, idField: keyof T, params?: Record<string, unknown>, read?: (row: unknown) => T): Promise<T[]> => {
+  const rows: T[] = [];
+  const seen = new Set<number>();
+  for (let skip = 0; skip < 100000; skip += 100) {
+    const page = await get<unknown[]>(url, { ...params, skip, limit: 100 });
+    if (!Array.isArray(page) || page.length > 100) throw new Error('Invalid paginated response. Please reload.');
+    for (const value of page) {
+      const row = read ? read(value) : value as T;
+      const id = row && Number(row[idField]);
+      if (!Number.isSafeInteger(id) || Number(id) <= 0 || seen.has(Number(id))) {
+        throw new Error('The list changed while loading or returned invalid records. Please reload.');
+      }
+      seen.add(Number(id));
+      rows.push(row);
+    }
+    if (page.length < 100) return rows;
+  }
+  throw new Error('Too many records to load safely. Narrow the list filters.');
 };
 const post = async <T>(url: string, data?: unknown): Promise<T> => {
   const res = await api.post<T>(url, data);
@@ -528,6 +598,10 @@ export const treatmentService = {
     get<Treatment[]>('/treatments', params as Record<string, unknown>),
   getById: (id: number) => get<Treatment>(`/treatments/${id}`),
   getCategories: () => get<TreatmentCategory[]>('/treatment-categories'),
+  createCategory: (data: { category_name: string; description?: string | null }) =>
+    post<TreatmentCategory>('/treatment-categories', data),
+  updateCategory: (id: number, data: { category_name?: string; description?: string | null }) =>
+    put<TreatmentCategory>(`/treatment-categories/${id}`, data),
   create: (data: Partial<Treatment>) => post<Treatment>('/treatments', data),
   update: (id: number, data: Partial<Treatment>) => put<Treatment>(`/treatments/${id}`, data),
 };
@@ -535,14 +609,16 @@ export const treatmentService = {
 // ── Patient Service ───────────────────────────────────────────────────────────
 export const patientService = {
   getAll: (params?: { branch_id?: number; search?: string }) =>
-    get<Patient[]>('/patients', params as Record<string, unknown>),
+    getPages<Patient>('/patients', 'patient_id', params as Record<string, unknown>),
   getById: (id: number) => get<Patient>(`/patients/${id}`),
-  create: (data: Partial<Patient>) => post<Patient>('/patients', data),
+  create: (data: Partial<Patient> & { portal_username?: string; emergency_contact?: Pick<EmergencyContact, 'contact_name' | 'relationship' | 'phone'> }) =>
+    post<Patient & { portal_username?: string | null }>('/patients', data),
   update: (id: number, data: Partial<Patient>) => put<Patient>(`/patients/${id}`, data),
   getEmergencyContacts: (id: number) => get<EmergencyContact[]>(`/patients/${id}/emergency-contacts`),
   addEmergencyContact: (id: number, data: Partial<EmergencyContact>) =>
     post<EmergencyContact>(`/patients/${id}/emergency-contacts`, data),
-  deleteEmergencyContact: (contactId: number) => del(`/emergency-contacts/${contactId}`),
+  deleteEmergencyContact: (patientId: number, contactId: number) =>
+    del(`/patients/${patientId}/emergency-contacts/${contactId}`),
   getInsurancePolicies: (id: number) => get<InsurancePolicy[]>(`/patients/${id}/insurance`),
 };
 
@@ -587,8 +663,14 @@ export const appointmentService = {
     doctor_id?: number;
     branch_id?: number;
     date?: string;
+    appointment_date?: string;
     status?: string;
-  }) => get<Appointment[]>('/appointments', params as Record<string, unknown>),
+  }) => {
+    const { date, ...filters } = params || {};
+    return getPages<Appointment>('/appointments', 'appointment_id', {
+      ...filters, appointment_date: filters.appointment_date || date,
+    });
+  },
   complete: (id: number) => put<Appointment>(`/appointments/${id}/complete`),
   getTreatments: (id: number) => get<AppointmentTreatment[]>(`/appointments/${id}/treatments`),
   addTreatment: (id: number, data: { treatment_id: number; quantity: number }) =>
@@ -597,8 +679,16 @@ export const appointmentService = {
     del(`/appointments/${id}/treatments/${appointmentTreatmentId}`),
   getById: (id: number) => get<Appointment>(`/appointments/${id}`),
   create: (data: Partial<Appointment>) => post<Appointment>('/appointments', data),
+  createEmergency: (data: Partial<Appointment>) => post<Appointment>('/appointments/emergency', {
+    patient_id: data.patient_id, doctor_id: data.doctor_id, branch_id: data.branch_id,
+    appointment_date: data.appointment_date, start_time: data.start_time, end_time: data.end_time,
+    treatment_id: data.treatment_id,
+  }),
   update: (id: number, data: Partial<Appointment>) => put<Appointment>(`/appointments/${id}`, data),
-  cancel: (id: number) => put(`/appointments/${id}/cancel`),
+  cancel: async (id: number): Promise<Appointment> => {
+    const res = await api.put<Appointment>(`/appointments/${id}/cancel`, undefined, { timeout: 15000 });
+    return res.data;
+  },
   reschedule: (id: number, data: { appointment_date: string; start_time: string; end_time: string }) =>
     post<Appointment>(`/appointments/${id}/reschedule`, data),
   getNotes: (id: number) => get<ConsultationNote[]>(`/appointments/${id}/notes`),
@@ -612,31 +702,46 @@ export const invoiceService = {
     get<Invoice[]>('/invoices', params as Record<string, unknown>),
   getById: (id: number) => get<Invoice>(`/invoices/${id}`),
   /** Generate the invoice for a completed appointment from its recorded treatments. */
-  generate: (appointmentId: number) => post<Invoice>('/invoices', { appointment_id: appointmentId }),
+  generate: (appointmentId: number) => post<Invoice>('/invoices/generate', { appointment_id: appointmentId }),
   update: (id: number, data: Partial<Invoice>) => put<Invoice>(`/invoices/${id}`, data),
   getItems: (id: number) => get<InvoiceItem[]>(`/invoices/${id}/items`),
   addItem: (id: number, data: Partial<InvoiceItem>) =>
     post<InvoiceItem>(`/invoices/${id}/items`, data),
-  makePayment: (id: number, data: { amount: number; method?: string }) =>
-    post<Invoice>(`/invoices/${id}/payments`, data),
-  getPayments: (id: number) => get<Payment[]>(`/invoices/${id}/payments`),
-  getAllPayments: () => get<Payment[]>('/payments'),
-  getDoctorPayments: (params?: { doctor_id?: number }) =>
-    get<DoctorPayment[]>('/doctor-payments', params as Record<string, unknown>),
+  /** Record a patient payment, then return the invoice with its new balance/status. */
+  makePayment: async (id: number, data: { amount: number; method?: string; reference?: string }) => {
+    try {
+      await post<Payment>(`/invoices/${id}/patient-payments`, {
+        amount: data.amount, payment_method: data.method || 'Cash', reference_number: data.reference || null,
+      });
+    } catch (error: any) {
+      if (error?.response?.status >= 400 && error.response.status < 500) throw error;
+      throw new PaymentOutcomeError('unknown');
+    }
+    try { return await get<Invoice>(`/invoices/${id}`); }
+    catch { throw new PaymentOutcomeError('recorded'); }
+  },
+  getPayments: (id: number) => get<Payment[]>(`/invoices/${id}/patient-payments`),
+  getAllPayments: () => get<Payment[]>('/patient-payments'),
+  /** Doctor compensation. The API names the id/amount `payment_id`/`amount`; map them to this model. */
+  getDoctorPayments: async (params?: { doctor_id?: number }) => {
+    const rows = await get<Array<Omit<DoctorPayment, 'doctor_payment_id' | 'doctor_payment'> & { payment_id: number; amount: number }>>(
+      '/doctor-payments', params as Record<string, unknown>);
+    return rows.map(({ payment_id, amount, ...rest }): DoctorPayment => ({ ...rest, doctor_payment_id: payment_id, doctor_payment: amount }));
+  },
 };
 
 // ── Reports Service ───────────────────────────────────────────────────────────
 export const reportsService = {
-  getBranchAppointmentSummary: (params?: { date?: string; branch_id?: number }) =>
-    get<BranchAppointmentSummary[]>('/reports/branch-appointment-summary', params as Record<string, unknown>),
-  getDoctorRevenue: (params?: { from_date?: string; to_date?: string }) =>
+  getBranchAppointmentSummary: (params?: { date?: string; from_date?: string; to_date?: string; branch_id?: number }) =>
+    get<BranchAppointmentSummary[]>('/reports/appointments-summary', params as Record<string, unknown>),
+  getDoctorRevenue: (params?: { from_date?: string; to_date?: string; branch_id?: number }) =>
     get<DoctorRevenueReport[]>('/reports/doctor-revenue', params as Record<string, unknown>),
-  getOutstandingPatients: () =>
-    get<OutstandingPatient[]>('/reports/outstanding-patients'),
-  getTreatmentCounts: (params?: { from_date?: string; to_date?: string }) =>
-    get<TreatmentCountReport[]>('/reports/treatment-counts', params as Record<string, unknown>),
-  getInsuranceSummary: (params?: { from_date?: string; to_date?: string }) =>
-    get<InsuranceSummary>('/reports/insurance-summary', params as Record<string, unknown>),
+  getOutstandingPatients: (params?: { from_date?: string; to_date?: string; branch_id?: number }) =>
+    get<OutstandingPatient[]>('/reports/outstanding-balances', params as Record<string, unknown>),
+  getTreatmentCounts: (params?: { from_date?: string; to_date?: string; branch_id?: number }) =>
+    get<TreatmentCountReport[]>('/reports/treatments-by-category', params as Record<string, unknown>),
+  getInsuranceSummary: (params?: { from_date?: string; to_date?: string; branch_id?: number }) =>
+    get<InsuranceSummary>('/reports/insurance-vs-out-of-pocket', params as Record<string, unknown>),
 };
 
 export default api;

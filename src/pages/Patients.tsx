@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { patientService, branchService, apiErrorMessage, Patient, Branch } from '../services/api';
 import { localDate } from '../utils/date';
@@ -14,9 +14,9 @@ const genderColor: Record<string, { color: string; bg: string }> = {
 
 export default function Patients() {
   const navigate = useNavigate();
-  const { isAdmin, isCashier } = useAuth();
+  const { user, isAdmin, isManager, isCashier } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
-  const canEdit = isAdmin || isCashier;
+  const canEdit = isAdmin || isManager || isCashier;
 
   const [patients, setPatients] = useState<Patient[]>([]);
   const [branches, setBranches] = useState<Branch[]>([]);
@@ -25,43 +25,57 @@ export default function Patients() {
   const [filterBranch, setFilterBranch] = useState('');
   const [filterGender, setFilterGender] = useState('');
   const [showModal, setShowModal] = useState(false);
+  const defaultBranchId = user?.branch_id || 0;
   const blankForm = {
     first_name: '', last_name: '', date_of_birth: '', gender: 'Male',
     patient_type: 'Regular', contact_details: '', email: '', address: '',
-    branch_id: 1, emergency_contact_name: '', emergency_contact_relationship: '', emergency_contact_phone: '',
+    branch_id: defaultBranchId, emergency_contact_name: '', emergency_contact_relationship: '', emergency_contact_phone: '',
+    create_portal: false, portal_username: '',
   };
-  const [form, setForm] = useState<Record<string, any>>(blankForm);
+  const [form, setForm] = useState(blankForm);
   const [submitting, setSubmitting] = useState(false);
+  const submittingRef = useRef(false);
   const [error, setError] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
+  const [loadError, setLoadError] = useState('');
+  const loadVersion = useRef(0);
 
   useEffect(() => {
+    setPatients([]); setBranches([]); setSuccessMsg(''); setShowModal(false);
+    setForm({ ...blankForm });
+    setFilterBranch('');
     loadData();
     if (searchParams.get('new') === '1') {
       openModal();
       setSearchParams({}, { replace: true });
     }
-  }, []);
+    return () => { loadVersion.current++; };
+  }, [user?.user_id, user?.branch_id]);
 
   const openModal = () => {
-    setForm(blankForm);
+    const branchId = isAdmin ? user?.branch_id || branches[0]?.branch_id || 0 : user?.branch_id || 0;
+    setForm({ ...blankForm, branch_id: branchId });
     setError('');
     setShowModal(true);
   };
 
   const loadData = async () => {
+    const version = ++loadVersion.current;
     setIsLoading(true);
+    setLoadError('');
     try {
       const [pts, brs] = await Promise.all([
         patientService.getAll(),
         branchService.getAll(),
       ]);
+      if (version !== loadVersion.current) return;
       setPatients(pts);
       setBranches(brs);
-    } catch {
-      // handle
+      setForm(current => current.branch_id ? current : { ...current, branch_id: user?.branch_id || (isAdmin ? brs[0]?.branch_id : 0) || 0 });
+    } catch (err) {
+      if (version === loadVersion.current) setLoadError(apiErrorMessage(err, 'Could not load patients. Please retry.'));
     } finally {
-      setIsLoading(false);
+      if (version === loadVersion.current) setIsLoading(false);
     }
   };
 
@@ -75,26 +89,42 @@ export default function Patients() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (submittingRef.current) return;
+    if (!canEdit || !branches.some(branch => branch.branch_id === form.branch_id) || !form.first_name.trim() || !form.last_name.trim()) {
+      setError('Enter the patient name and select an available branch.');
+      return;
+    }
+    if (form.create_portal && (form.portal_username.trim().length < 3 || !form.email.trim())) {
+      setError('Portal access requires a unique username of at least three characters and an account email.');
+      return;
+    }
+    const contact = { contact_name: form.emergency_contact_name.trim(), relationship: form.emergency_contact_relationship.trim(), phone: form.emergency_contact_phone.trim() };
+    if (Object.values(contact).some(Boolean) && !Object.values(contact).every(Boolean)) {
+      setError('Enter all three emergency-contact fields, or leave all of them blank.');
+      return;
+    }
+    submittingRef.current = true;
+    const version = loadVersion.current;
     setSubmitting(true);
     setError('');
     try {
-      const created: any = await patientService.create(form as Partial<Patient>);
-      setSuccessMsg(
-        `${created.first_name} ${created.last_name} registered (Patient #${created.patient_id}).` +
-        (created.username ? ` Patient portal login: ${created.username} / ${created.temporary_password}` : '')
-      );
+      const { emergency_contact_name, emergency_contact_relationship, emergency_contact_phone, create_portal, portal_username, ...patientFields } = form;
+      const created = await patientService.create({ ...patientFields, ...(create_portal ? { portal_username: portal_username.trim() } : {}), ...(contact.contact_name ? { emergency_contact: contact } : {}) });
+      if (version !== loadVersion.current) return;
+      setSuccessMsg(`${created.first_name} ${created.last_name} registered (Patient #${created.patient_id}). ${created.portal_username ? `Portal username: ${created.portal_username}. Initial password: password123. Ask the patient to change it after signing in.` : 'No portal account was requested.'}`);
       setShowModal(false);
       loadData();
-      setTimeout(() => setSuccessMsg(''), 10000);
     } catch (err) {
-      setError(apiErrorMessage(err, 'Failed to register patient'));
+      if (version === loadVersion.current) setError(apiErrorMessage(err, 'Failed to register patient'));
     } finally {
       setSubmitting(false);
+      submittingRef.current = false;
     }
   };
 
   const getBranchName = (id: number) =>
     branches.find(b => b.branch_id === id)?.branch_name || `Branch #${id}`;
+  const registrationBranchIds = [...new Set([...branches.map(branch => branch.branch_id), ...patients.map(patient => patient.branch_id)])].sort((a, b) => a - b);
 
   const calcAge = (dob: string) => {
     const today = new Date();
@@ -108,6 +138,7 @@ export default function Patients() {
 
   return (
     <div style={{ animation: 'fadeIn 0.3s ease' }}>
+      {loadError && <div className="alert alert-error" role="alert">{loadError}<button className="btn btn-ghost btn-sm" onClick={() => void loadData()}>Retry</button></div>}
       {successMsg && <div className="alert alert-success">{successMsg}</div>}
 
       <div className="section-header">
@@ -116,7 +147,7 @@ export default function Patients() {
             Patient Records
           </h2>
           <p style={{ fontSize: 13, color: 'var(--gray-500)', marginTop: 2 }}>
-            {filtered.length} of {patients.length} patients
+            {isLoading ? 'Loading patients...' : loadError ? 'Patient count unavailable' : `${filtered.length} of ${patients.length} patients`}
           </p>
         </div>
         <div className="page-actions">
@@ -137,8 +168,8 @@ export default function Patients() {
             onChange={e => setFilterBranch(e.target.value)}
           >
             <option value="">All Branches</option>
-            {branches.map(b => (
-              <option key={b.branch_id} value={b.branch_id}>{b.branch_name}</option>
+            {registrationBranchIds.map(branchId => (
+              <option key={branchId} value={branchId}>{getBranchName(branchId)}</option>
             ))}
           </select>
 
@@ -172,7 +203,7 @@ export default function Patients() {
               <div key={i} className="skeleton" style={{ height: 50, marginBottom: 8, borderRadius: 'var(--radius)' }} />
             ))}
           </div>
-        ) : filtered.length === 0 ? (
+        ) : loadError ? <div className="card-body">Patient data is unavailable. Use Retry above.</div> : filtered.length === 0 ? (
           <div className="empty-state">
             <div className="empty-state-icon">
             </div>
@@ -194,7 +225,7 @@ export default function Patients() {
                   <th>Patient</th>
                   <th>Gender / Age</th>
                   <th>Contact</th>
-                  <th>Branch</th>
+                  <th>Registered Branch</th>
                   <th>Type</th>
                   <th>Actions</th>
                 </tr>
@@ -246,7 +277,7 @@ export default function Patients() {
                           >
                             View
                           </button>
-                          {(isAdmin || isCashier) && (
+                          {canEdit && (
                             <button
                               className="btn btn-ghost btn-sm"
                               onClick={() => navigate(`/appointments?patient_id=${patient.patient_id}`)}
@@ -267,23 +298,24 @@ export default function Patients() {
 
       {/* Register Patient Modal */}
       {showModal && (
-        <div className="modal-overlay" onClick={() => setShowModal(false)}>
+        <div className="modal-overlay" onClick={() => { if (!submittingRef.current) setShowModal(false); }}>
           <div className="modal modal-lg" onClick={e => e.stopPropagation()}>
             <div className="modal-header">
               <h3 className="modal-title">Register New Patient</h3>
-              <button className="modal-close" onClick={() => setShowModal(false)}></button>
+              <button className="modal-close" aria-label="Close registration" disabled={submitting} onClick={() => setShowModal(false)}></button>
             </div>
             <form onSubmit={handleSubmit}>
               <div className="modal-body">
                 {error && <div className="alert alert-error">{error}</div>}
+                <fieldset disabled={submitting} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
                 <div className="form-row">
                   <div className="form-group">
                     <label className="form-label">First Name *</label>
-                    <input className="form-control" required value={form.first_name || ''} onChange={e => setForm({...form, first_name: e.target.value})} placeholder="e.g. Kavindu" />
+                    <input className="form-control" required maxLength={100} value={form.first_name || ''} onChange={e => setForm({...form, first_name: e.target.value})} placeholder="e.g. Kavindu" />
                   </div>
                   <div className="form-group">
                     <label className="form-label">Last Name *</label>
-                    <input className="form-control" required value={form.last_name || ''} onChange={e => setForm({...form, last_name: e.target.value})} placeholder="e.g. Perera" />
+                    <input className="form-control" required maxLength={100} value={form.last_name || ''} onChange={e => setForm({...form, last_name: e.target.value})} placeholder="e.g. Perera" />
                   </div>
                 </div>
                 <div className="form-row">
@@ -303,17 +335,18 @@ export default function Patients() {
                 <div className="form-row">
                   <div className="form-group">
                     <label className="form-label">Email</label>
-                    <input className="form-control" type="email" value={form.email || ''} onChange={e => setForm({...form, email: e.target.value})} placeholder="patient@email.com" />
+                    <input className="form-control" type="email" required={form.create_portal} maxLength={255} value={form.email || ''} onChange={e => setForm({...form, email: e.target.value})} placeholder="patient@email.com" />
                   </div>
                   <div className="form-group">
                     <label className="form-label">Contact</label>
-                    <input className="form-control" value={form.contact_details || ''} onChange={e => setForm({...form, contact_details: e.target.value})} placeholder="07XXXXXXXX" />
+                    <input className="form-control" maxLength={255} value={form.contact_details || ''} onChange={e => setForm({...form, contact_details: e.target.value})} placeholder="07XXXXXXXX" />
                   </div>
                 </div>
                 <div className="form-row">
                   <div className="form-group">
                     <label className="form-label">Branch *</label>
-                    <select className="form-control" value={form.branch_id || 1} onChange={e => setForm({...form, branch_id: Number(e.target.value)})}>
+                    <select className="form-control" required disabled={!isAdmin} value={form.branch_id} onChange={e => setForm({...form, branch_id: Number(e.target.value)})}>
+                      <option value={0}>Select a branch</option>
                       {branches.map(b => <option key={b.branch_id} value={b.branch_id}>{b.branch_name}</option>)}
                     </select>
                   </div>
@@ -329,27 +362,39 @@ export default function Patients() {
                 </div>
                 <div className="form-group">
                   <label className="form-label">Address</label>
-                  <input className="form-control" value={form.address || ''} onChange={e => setForm({...form, address: e.target.value})} placeholder="Full address..." />
+                  <input className="form-control" maxLength={500} value={form.address || ''} onChange={e => setForm({...form, address: e.target.value})} placeholder="Full address..." />
+                </div>
+                <div className="form-group">
+                  <label className="form-label" style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                    <input type="checkbox" checked={form.create_portal} onChange={e => setForm({ ...form, create_portal: e.target.checked })} />
+                    Create patient portal access (optional)
+                  </label>
+                  {form.create_portal && <>
+                    <label className="form-label" htmlFor="patient-portal-username">Portal username *</label>
+                    <input id="patient-portal-username" className="form-control" required minLength={3} maxLength={100} autoCapitalize="none" spellCheck={false} value={form.portal_username} onChange={e => setForm({ ...form, portal_username: e.target.value })} />
+                    <p style={{ fontSize: 12, color: 'var(--gray-500)', marginTop: 6 }}>Use a unique username and account email. The initial password is password123; ask the patient to change it after sign-in. Scheduling remains staff-managed.</p>
+                  </>}
                 </div>
                 <p style={{ fontSize: 12, fontWeight: 700, color: 'var(--gray-500)', textTransform: 'uppercase', letterSpacing: '0.05em', margin: '8px 0' }}>Emergency Contact</p>
                 <div className="form-row">
                   <div className="form-group">
                     <label className="form-label">Name</label>
-                    <input className="form-control" value={form.emergency_contact_name} onChange={e => setForm({...form, emergency_contact_name: e.target.value})} />
+                    <input className="form-control" maxLength={150} value={form.emergency_contact_name} onChange={e => setForm({...form, emergency_contact_name: e.target.value})} />
                   </div>
                   <div className="form-group">
                     <label className="form-label">Relationship</label>
-                    <input className="form-control" value={form.emergency_contact_relationship} onChange={e => setForm({...form, emergency_contact_relationship: e.target.value})} placeholder="e.g. Spouse" />
+                    <input className="form-control" maxLength={100} value={form.emergency_contact_relationship} onChange={e => setForm({...form, emergency_contact_relationship: e.target.value})} placeholder="e.g. Spouse" />
                   </div>
                   <div className="form-group">
                     <label className="form-label">Phone</label>
-                    <input className="form-control" value={form.emergency_contact_phone} onChange={e => setForm({...form, emergency_contact_phone: e.target.value})} />
+                    <input className="form-control" maxLength={50} value={form.emergency_contact_phone} onChange={e => setForm({...form, emergency_contact_phone: e.target.value})} />
                   </div>
                 </div>
+                </fieldset>
               </div>
               <div className="modal-footer">
-                <button type="button" className="btn btn-ghost" onClick={() => setShowModal(false)}>Cancel</button>
-                <button type="submit" className="btn btn-primary" disabled={submitting}>
+                <button type="button" className="btn btn-ghost" disabled={submitting} onClick={() => setShowModal(false)}>Cancel</button>
+                <button type="submit" className="btn btn-primary" disabled={submitting || isLoading || !!loadError}>
                   {submitting ? <><span className="spinner" style={{ width: 14, height: 14, borderWidth: 2 }} /> Registering...</> : 'Register Patient'}
                 </button>
               </div>

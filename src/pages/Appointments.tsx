@@ -1,38 +1,42 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   appointmentService, patientService, doctorService, branchService, treatmentService,
   apiErrorMessage, Appointment, Patient, Doctor, Branch, Treatment
 } from '../services/api';
-import { localDate } from '../utils/date';
+import { useAuth } from '../auth/AuthContext';
+import { localDate, clinicTime } from '../utils/date';
+import { useDialog } from '../components/DialogProvider';
+import { appointmentActionError } from '../utils/appointmentActionError';
 
 const typeBadge = (type: string) => {
   if (type === 'Emergency' || type === 'Walk-in') return <span className="badge badge-warning">{type}</span>;
-  return <span className="badge bad  ge-info">{type}</span>;
+  return <span className="badge badge-info">{type}</span>;
 };
 
 export const statusBadge = (status?: string) => {
   if (status === 'Completed') return <span className="badge badge-success">Completed</span>;
   if (status === 'Cancelled') return <span className="badge badge-danger">Cancelled</span>;
-  return <span className="badge badge-primary">Scheduled</span>;
+  if (status === 'Scheduled') return <span className="badge badge-primary">Scheduled</span>;
+  return <span className="badge badge-gray">{status || 'Unknown'}</span>;
 };
 
-const nowHHMM = (offsetMinutes = 0) => {
-  const d = new Date(Date.now() + offsetMinutes * 60000);
-  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
-};
-
-const emptyForm = (walkIn: boolean, patientId?: number, doctorId?: number): Partial<Appointment> => ({
+const emptyForm = (walkIn: boolean, patientId?: number, doctorId?: number, branchId?: number): Partial<Appointment> => ({
   patient_id: patientId,
   doctor_id: doctorId,
+  branch_id: branchId,
   appointment_date: localDate(0),
-  start_time: walkIn ? nowHHMM() : '09:00',
-  end_time: walkIn ? nowHHMM(30) : '09:30',
+  start_time: walkIn ? clinicTime() : '09:00',
+  end_time: walkIn ? clinicTime(30) : '09:30',
   appointment_type: walkIn ? 'Walk-in' : 'Consultation',
 });
 
 export default function Appointments() {
   const navigate = useNavigate();
+  const { user } = useAuth();
+  const canBook = user?.user_type === 'staff' && ['admin', 'branch_manager', 'doctor', 'receptionist_cashier'].includes(user.role);
+  const canListBranches = user?.user_type === 'staff' && ['admin', 'branch_manager', 'receptionist_cashier'].includes(user.role);
+  const { confirmAction } = useDialog();
   const [searchParams, setSearchParams] = useSearchParams();
 
   const [appointments, setAppointments] = useState<Appointment[]>([]);
@@ -48,46 +52,73 @@ export default function Appointments() {
   const [filterStatus, setFilterStatus] = useState('');
   const [showModal, setShowModal] = useState(false);
   const [walkIn, setWalkIn] = useState(false);
-  const [form, setForm] = useState<Partial<Appointment>>(emptyForm(false));
+  const [form, setForm] = useState<Partial<Appointment>>(emptyForm(false, undefined, undefined, user?.branch_id ?? undefined));
   const [submitting, setSubmitting] = useState(false);
+  const submittingRef = useRef(false);
+  const [lookupsLoading, setLookupsLoading] = useState(false);
+  const [lookupsError, setLookupsError] = useState('');
+  const lookupsLoaded = useRef(false);
+  const listVersion = useRef(0);
   const [error, setError] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
   const [listError, setListError] = useState('');
+  const [actionError, setActionError] = useState('');
+  const [cancellingId, setCancellingId] = useState<number | null>(null);
+  const cancelPending = useRef(false);
 
   useEffect(() => {
     loadData();
     const pid = searchParams.get('patient_id') ? Number(searchParams.get('patient_id')) : undefined;
     const did = searchParams.get('doctor_id') ? Number(searchParams.get('doctor_id')) : undefined;
     const isWalkIn = searchParams.get('walkin') === '1';
-    if (pid || did || isWalkIn || searchParams.get('new') === '1') {
+    if (canBook && (pid || did || isWalkIn || searchParams.get('new') === '1')) {
       openModal(isWalkIn, pid, did);
       setSearchParams({}, { replace: true });
     }
   }, []);
 
-  const loadData = async () => {
+  useEffect(() => {
+    if (!showModal || lookupsLoaded.current) return;
+    let cancelled = false;
+    setLookupsLoading(true);
+    setLookupsError('');
+    Promise.all([patientService.getAll(), doctorService.getAll(), treatmentService.getAll()])
+      .then(([pts, docs, txs]) => {
+        if (cancelled) return;
+        setPatients(pts);
+        setDoctors(docs);
+        setTreatments(txs);
+        lookupsLoaded.current = true;
+        setForm(current => ({ ...current, branch_id: docs.find(d => d.doctor_id === current.doctor_id)?.branch_id || current.branch_id }));
+      })
+      .catch(err => { if (!cancelled) setLookupsError(apiErrorMessage(err, 'Could not load booking options. Close and reopen this form to retry.')); })
+      .finally(() => { if (!cancelled) setLookupsLoading(false); });
+    return () => { cancelled = true; };
+  }, [showModal]);
+
+  const loadData = async (refreshBranches = true) => {
+    const version = ++listVersion.current;
     setIsLoading(true);
+    setListError('');
     try {
-      const [appts, pts, docs, brs, txs] = await Promise.all([
+      const [appts, brs] = await Promise.all([
         appointmentService.getAll(),
-        patientService.getAll(),
-        doctorService.getAll(),
-        branchService.getAll(),
-        treatmentService.getAll(),
+        refreshBranches && canListBranches ? branchService.getAll() : Promise.resolve(branches),
       ]);
+      if (version !== listVersion.current) return;
       setAppointments(appts);
-      setPatients(pts);
-      setDoctors(docs);
       setBranches(brs);
-      setTreatments(txs);
     } catch (err) {
-      setListError(apiErrorMessage(err, 'Could not load appointments.'));
-    } finally { setIsLoading(false); }
+      if (version === listVersion.current) setListError(apiErrorMessage(err, 'Could not load appointments.'));
+    } finally { if (version === listVersion.current) setIsLoading(false); }
   };
 
   const openModal = (asWalkIn: boolean, patientId?: number, doctorId?: number) => {
+    if (!canBook) return;
     setWalkIn(asWalkIn);
-    setForm(emptyForm(asWalkIn, patientId, doctorId));
+    const doc = doctorId ? doctors.find(d => d.doctor_id === doctorId) : undefined;
+    const branchId = doc?.branch_id ?? user?.branch_id ?? undefined;
+    setForm(emptyForm(asWalkIn, patientId, doctorId, branchId));
     setError('');
     setShowModal(true);
   };
@@ -104,30 +135,56 @@ export default function Appointments() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!canBook || submittingRef.current || lookupsLoading || lookupsError) return;
+    if (!form.patient_id || !form.doctor_id || !form.branch_id || !form.appointment_date || !form.start_time || !form.end_time || form.start_time >= form.end_time) {
+      setError('Choose a patient and doctor, and an end time after the start time.');
+      return;
+    }
+    const doctor = doctors.find(d => d.doctor_id === form.doctor_id);
+    if (!doctor?.branch_id || doctor.branch_id !== form.branch_id) {
+      setError('Choose a doctor with a valid branch before booking.');
+      return;
+    }
+    submittingRef.current = true;
     setSubmitting(true);
     setError('');
     try {
-      const created = await appointmentService.create(form);
-      setSuccessMsg(`Appointment #${created.appointment_id} booked for ${created.patient_name} with ${created.doctor_name} on ${created.appointment_date} at ${created.start_time}.`);
+      const created = form.appointment_type === 'Emergency'
+        ? await appointmentService.createEmergency(form)
+        : await appointmentService.create(form);
+      const patient = patients.find(p => p.patient_id === created.patient_id);
+      const doctor = doctors.find(d => d.doctor_id === created.doctor_id);
+      setSuccessMsg(`Appointment #${created.appointment_id} booked for ${created.patient_name || `${patient?.first_name || ''} ${patient?.last_name || ''}`.trim() || `patient #${created.patient_id}`} with ${created.doctor_name || doctor?.doctor_name || `doctor #${created.doctor_id}`} on ${created.appointment_date} at ${created.start_time.slice(0, 5)}.`);
       setShowModal(false);
-      loadData();
+      void loadData(false);
       setTimeout(() => setSuccessMsg(''), 5000);
     } catch (err) {
       setError(apiErrorMessage(err, 'Failed to book appointment.'));
     } finally {
       setSubmitting(false);
+      submittingRef.current = false;
     }
   };
 
   const handleCancel = async (appt: Appointment) => {
-    if (!confirm(`Cancel appointment #${appt.appointment_id} for ${appt.patient_name}?`)) return;
+    if (!canBook || cancelPending.current) return;
+    cancelPending.current = true;
     try {
-      await appointmentService.cancel(appt.appointment_id);
+      if (!await confirmAction(`Cancel appointment #${appt.appointment_id} for ${appt.patient_name || `patient #${appt.patient_id}`}?`, {
+        title: 'Cancel appointment', confirmLabel: 'Cancel appointment', danger: true,
+      })) return;
+      setCancellingId(appt.appointment_id);
+      setActionError('');
+      setSuccessMsg('');
+      const cancelled = await appointmentService.cancel(appt.appointment_id);
+      setAppointments(current => current.map(item => item.appointment_id === cancelled.appointment_id ? { ...item, status: cancelled.status } : item));
       setSuccessMsg(`Appointment #${appt.appointment_id} was cancelled.`);
-      setTimeout(() => setSuccessMsg(''), 4000);
-      loadData();
+      await loadData(false);
     } catch (err) {
-      alert(apiErrorMessage(err, 'Cancellation failed.'));
+      setActionError(appointmentActionError(err));
+    } finally {
+      cancelPending.current = false;
+      setCancellingId(null);
     }
   };
 
@@ -137,8 +194,10 @@ export default function Appointments() {
 
   return (
     <div className="animate-[fade-in_0.3s_ease]">
-      {successMsg && <div className="alert alert-success">{successMsg}</div>}
-      {listError && <div className="alert alert-error">{listError}</div>}
+      {successMsg && <div className="alert alert-success" role="status">{successMsg}</div>}
+      {actionError && <div className="alert alert-error" role="alert">{actionError}</div>}
+      {listError && <div className="alert alert-error" role="alert">{listError}</div>}
+      {!canBook && <div className="alert alert-info">Please contact clinic staff to book, cancel or reschedule a visit.</div>}
 
       <div className="flex gap-3 mb-5 flex-wrap">
         {[
@@ -182,10 +241,10 @@ export default function Appointments() {
             <option>Emergency</option>
             <option>Walk-in</option>
           </select>
-          <button className="btn btn-danger" onClick={() => openModal(true)}>Walk-in</button>
-          <button className="btn btn-primary" onClick={() => openModal(false)}>
+          {canBook && <button className="btn btn-danger" onClick={() => openModal(true)}>Walk-in</button>}
+          {canBook && <button className="btn btn-primary" onClick={() => openModal(false)}>
             Book Appointment
-          </button>
+          </button>}
         </div>
       </div>
 
@@ -197,7 +256,7 @@ export default function Appointments() {
         ) : filtered.length === 0 ? (
           <div className="empty-state">
             <p className="empty-state-title">No appointments found</p>
-            <button className="btn btn-primary" onClick={() => openModal(false)}>Book Appointment</button>
+            {canBook && <button className="btn btn-primary" onClick={() => openModal(false)}>Book Appointment</button>}
           </div>
         ) : (
           <div className="table-container">
@@ -237,8 +296,10 @@ export default function Appointments() {
                     <td onClick={e => e.stopPropagation()}>
                       <div className="flex gap-1.5">
                         <button className="btn btn-secondary btn-sm" onClick={() => navigate(`/appointments/${appt.appointment_id}`)}>View</button>
-                        {appt.status === 'Scheduled' && (
-                          <button className="btn btn-ghost btn-sm" onClick={() => handleCancel(appt)}>Cancel</button>
+                        {canBook && appt.status === 'Scheduled' && !appt.invoice_id && (
+                          <button className="btn btn-ghost btn-sm" disabled={cancellingId !== null} onClick={() => handleCancel(appt)}>
+                            {cancellingId === appt.appointment_id ? 'Cancelling…' : 'Cancel'}
+                          </button>
                         )}
                       </div>
                     </td>
@@ -263,6 +324,8 @@ export default function Appointments() {
                   <div className="alert alert-info">Walk-ins are created directly by staff for today, without prior booking. The doctor must be free at the chosen time.</div>
                 )}
                 {error && <div className="alert alert-error">{error}</div>}
+                {lookupsLoading && <p role="status">Loading booking options…</p>}
+                {lookupsError && <div className="alert alert-error" role="alert">{lookupsError}</div>}
                 <div className="form-row">
                   <div className="form-group">
                     <label className="form-label">Patient *</label>
@@ -273,7 +336,20 @@ export default function Appointments() {
                   </div>
                   <div className="form-group">
                     <label className="form-label">Doctor *</label>
-                    <select className="form-control" required value={form.doctor_id || ''} onChange={e => setForm({ ...form, doctor_id: Number(e.target.value) || undefined })}>
+                    <select
+                      className="form-control"
+                      required
+                      value={form.doctor_id || ''}
+                      onChange={e => {
+                        const docId = Number(e.target.value) || undefined;
+                        const doc = doctors.find(d => d.doctor_id === docId);
+                        setForm({
+                          ...form,
+                          doctor_id: docId,
+                          branch_id: doc?.branch_id ?? undefined,
+                        });
+                      }}
+                    >
                       <option value="">Select doctor...</option>
                       {doctors.map(d => (
                         <option key={d.doctor_id} value={d.doctor_id}>
@@ -332,7 +408,7 @@ export default function Appointments() {
               </div>
               <div className="modal-footer">
                 <button type="button" className="btn btn-ghost" onClick={() => setShowModal(false)}>Cancel</button>
-                <button type="submit" className="btn btn-primary" disabled={submitting}>
+                <button type="submit" className="btn btn-primary" disabled={submitting || lookupsLoading || !!lookupsError}>
                   {submitting ? <><span className="spinner border-2 size-3.5" /> Saving...</> : walkIn ? 'Register Walk-in' : 'Book Appointment'}
                 </button>
               </div>

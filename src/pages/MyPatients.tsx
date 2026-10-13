@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../auth/AuthContext';
-import { appointmentService, patientService, Appointment, Patient } from '../services/api';
+import { patientService, apiErrorMessage, Patient } from '../services/api';
 
 export default function MyPatients() {
   const { user } = useAuth();
@@ -9,25 +9,26 @@ export default function MyPatients() {
   const [patients, setPatients] = useState<Patient[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [search, setSearch] = useState('');
+  const [error, setError] = useState('');
 
   useEffect(() => {
-    if (!user?.doctor_id) { setIsLoading(false); return; }
-    // Load appointments for this doctor, then get unique patient IDs
-    appointmentService.getAll({ doctor_id: user.doctor_id })
-      .then(async (appts: Appointment[]) => {
-        const uniquePatientIds = [...new Set(appts.map(a => a.patient_id))];
-        // Fetch each unique patient
-        const patientData = await Promise.allSettled(
-          uniquePatientIds.map(pid => patientService.getById(pid))
-        );
-        const loaded = patientData
-          .filter(r => r.status === 'fulfilled')
-          .map(r => (r as PromiseFulfilledResult<Patient>).value);
-        setPatients(loaded);
-      })
-      .catch(() => {})
-      .finally(() => setIsLoading(false));
-  }, [user]);
+    let cancelled = false;
+    setPatients([]);
+    setError('');
+    if (!user?.doctor_id) {
+      setError('Your account needs a linked doctor profile. Contact an administrator.');
+      setIsLoading(false);
+      return;
+    }
+    setIsLoading(true);
+    // The server already scopes this list to patients with appointments assigned to this doctor.
+    // Avoid fetching each patient's full record separately (including unnecessary contact data).
+    patientService.getAll()
+      .then(data => { if (!cancelled) setPatients(data); })
+      .catch(err => { if (!cancelled) setError(apiErrorMessage(err, 'Could not load your patients.')); })
+      .finally(() => { if (!cancelled) setIsLoading(false); });
+    return () => { cancelled = true; };
+  }, [user?.user_id, user?.doctor_id]);
 
   const filtered = patients.filter(p => {
     if (!search) return true;
@@ -59,7 +60,7 @@ export default function MyPatients() {
       </div>
 
       <div className="card">
-        {isLoading ? (
+        {error ? <div className="alert alert-error" role="alert">{error}</div> : isLoading ? (
           <div style={{ padding: 24 }}>
             {[1, 2, 3].map(i => <div key={i} className="skeleton" style={{ height: 64, marginBottom: 8, borderRadius: 'var(--radius)' }} />)}
           </div>

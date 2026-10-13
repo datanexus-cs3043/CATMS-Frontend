@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { invoiceService, DoctorPayment, Invoice, Payment } from '../services/api';
+import { invoiceService, apiErrorMessage, DoctorPayment, Invoice, Payment } from '../services/api';
 
 
 export default function Payments() {
@@ -9,11 +9,13 @@ export default function Payments() {
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [transactions, setTransactions] = useState<Payment[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [loadErrors, setLoadErrors] = useState<Partial<Record<'transactions' | 'invoice' | 'doctor', string>>>({});
   const [activeTab, setActiveTab] = useState<'transactions' | 'invoice' | 'doctor'>('transactions');
 
   useEffect(() => {
     const load = async () => {
       setIsLoading(true);
+      setLoadErrors({});
       try {
         const [dp, inv, tx] = await Promise.allSettled([
           invoiceService.getDoctorPayments(),
@@ -23,7 +25,12 @@ export default function Payments() {
         if (dp.status === 'fulfilled') setDoctorPayments(dp.value);
         if (inv.status === 'fulfilled') setInvoices(inv.value);
         if (tx.status === 'fulfilled') setTransactions(tx.value);
-      } catch {} finally { setIsLoading(false); }
+        setLoadErrors({
+          ...(tx.status === 'rejected' ? { transactions: apiErrorMessage(tx.reason, 'Could not load payment transactions.') } : {}),
+          ...(inv.status === 'rejected' ? { invoice: apiErrorMessage(inv.reason, 'Could not load invoice balances.') } : {}),
+          ...(dp.status === 'rejected' ? { doctor: apiErrorMessage(dp.reason, 'Could not load doctor payments.') } : {}),
+        });
+      } finally { setIsLoading(false); }
     };
     load();
   }, []);
@@ -38,9 +45,9 @@ export default function Payments() {
     <div style={{ animation: 'fadeIn 0.3s ease' }}>
       <div className="stats-grid" style={{ marginBottom: 24 }}>
         {[
-          { label: 'Total Collected', value: `Rs. ${totalCollected.toLocaleString()}`, color: '#1d6fb8' },
-          { label: 'Outstanding', value: `Rs. ${totalPending.toLocaleString()}`, color: '#c2372f' },
-          { label: 'Doctor Payments', value: `Rs. ${totalDoctorPaid.toLocaleString()}`, color: '#3f89cc' },
+          { label: 'Total Collected', value: loadErrors.invoice ? 'Unavailable' : `Rs. ${totalCollected.toLocaleString()}`, color: '#1d6fb8' },
+          { label: 'Outstanding', value: loadErrors.invoice ? 'Unavailable' : `Rs. ${totalPending.toLocaleString()}`, color: '#c2372f' },
+          { label: 'Doctor Payments', value: loadErrors.doctor ? 'Unavailable' : `Rs. ${totalDoctorPaid.toLocaleString()}`, color: '#3f89cc' },
         ].map(s => (
           <div key={s.label} className="stat-card">
             <div className="stat-icon" style={{ background: `${s.color}18`, color: s.color, fontSize: 22 }}>
@@ -67,6 +74,8 @@ export default function Payments() {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
           {[1,2,3].map(i => <div key={i} className="skeleton" style={{ height: 52, borderRadius: 'var(--radius)' }} />)}
         </div>
+      ) : loadErrors[activeTab] ? (
+        <div className="alert alert-error">{loadErrors[activeTab]}</div>
       ) : activeTab === 'transactions' ? (
         <div className="card">
           {transactions.length === 0 ? (
@@ -82,8 +91,8 @@ export default function Payments() {
                       <td style={{ color: 'var(--gray-500)' }}>{p.payment_date}</td>
                       <td>INV-{p.invoice_id}</td>
                       <td>{p.patient_name}</td>
-                      <td>{p.method}</td>
-                      <td style={{ color: 'var(--gray-500)' }}>{p.received_by}</td>
+                      <td>{p.payment_method}</td>
+                      <td style={{ color: 'var(--gray-500)' }}>{p.received_by_name || '—'}</td>
                       <td style={{ fontWeight: 600, color: 'var(--success)' }}>Rs. {Number(p.amount).toLocaleString()}</td>
                     </tr>
                   ))}

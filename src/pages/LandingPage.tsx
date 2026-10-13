@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../auth/AuthContext';
 import { clinicPhotos } from '../components/HeroSlider';
+import api, { apiErrorMessage, type ClinicDirectory } from '../services/api';
 
 // Non-technical summary slide content
 const SLIDES = [
@@ -13,9 +14,9 @@ const SLIDES = [
   },
   {
     tag: 'Fast & Reliable Channeling',
-    title: 'Find Your Specialist & Book with Zero Waiting',
-    desc: 'Search certified medical consultants by specialty or location, reserve your consultation window in seconds, or register for same-day walk-in care with instant front-desk check-in.',
-    badge: 'No Long Queues',
+    title: 'Find Your Specialist & Arrange Your Visit',
+    desc: 'Explore medical specialties and contact clinic reception to arrange a consultation or ask about same-day walk-in care.',
+    badge: 'Reception-Assisted Booking',
   },
   {
     tag: 'Unified Health Records',
@@ -25,9 +26,9 @@ const SLIDES = [
   },
   {
     tag: 'Transparent Billing & Claims',
-    title: 'Clear, Itemized Invoices & Instant Insurance Support',
-    desc: 'No hidden medical charges. Every consultation and procedure is itemized from a standardized service catalog, with direct health insurance policy coverage applied automatically.',
-    badge: 'Cashless Claims',
+    title: 'Clear, Itemized Invoices & Insurance Claim Tracking',
+    desc: 'Consultations and procedures are itemized from a standardized service catalog. View your bills and ask reception about insurance policies and claim status.',
+    badge: 'Transparent Claims',
   },
 ];
 
@@ -35,12 +36,12 @@ const FEATURES = [
   {
     icon: '🩺',
     title: 'Specialist Channeling',
-    desc: 'Search certified medical practitioners across multiple disciplines. View verified consultation hours and reserve your appointment slot without double-booking conflicts.',
+    desc: 'Find medical practitioners across multiple disciplines. Clinic reception helps arrange appointments with the appropriate doctor and branch.',
   },
   {
     icon: '🏥',
     title: 'Walk-In & Emergency Care',
-    desc: 'Need urgent consultation? Front-desk receptionists can register walk-in patients on the spot, intelligently interleaving them into the daily doctor roster.',
+    desc: 'Need urgent consultation? Front-desk receptionists can register walk-in patients on the spot, finding an available slot in the doctor roster.',
   },
   {
     icon: '📋',
@@ -50,73 +51,35 @@ const FEATURES = [
   {
     icon: '💊',
     title: 'Consultations & Treatments',
-    desc: 'Doctors securely log clinical observations, diagnoses, and medical advice, selecting performed treatments directly from an official medical service catalog.',
+    desc: 'Doctors securely log clinical observations, diagnoses, and medical advice, selecting performed treatments directly from the clinic service catalog.',
   },
   {
     icon: '🧾',
     title: 'Itemized, Fair Invoicing',
-    desc: 'Invoices are computed automatically from the treatments rendered during your visit, guaranteeing clear line-item prices with zero manual errors.',
+    desc: 'Invoices are generated from the recorded treatments rendered during your visit, showing itemized quantities and prices.',
   },
   {
     icon: '🛡️',
     title: 'Integrated Health Insurance',
-    desc: 'Store insurance policy numbers and terms. Claims are filed and settled against invoices with coverage percentages and maximum caps applied automatically.',
+    desc: 'Keep insurance policy numbers and terms on file. Clinic staff manage claims against invoices and track pending, approved and rejected outcomes.',
   },
-];
-
-const BRANCHES = [
-  {
-    name: 'MedSync Colombo',
-    tag: 'Central Hospital & Specialist Clinic',
-    location: 'Colombo 07, Western Province',
-    contact: '+94 11 234 5678',
-    hours: 'Mon – Sun: 7:00 AM – 10:00 PM',
-    highlight: 'Advanced diagnostic laboratories, high-volume multi-specialty channeling, and emergency care.',
-  },
-  {
-    name: 'MedSync Kandy',
-    tag: 'Hill Country Consultation Center',
-    location: 'Peradeniya Road, Kandy, Central Province',
-    contact: '+94 81 223 4567',
-    hours: 'Mon – Sat: 8:00 AM – 8:00 PM',
-    highlight: 'Family medicine, specialized paediatric care, cardiology consultations, and diagnostic imaging.',
-  },
-  {
-    name: 'MedSync Galle',
-    tag: 'Southern Coastal Medical Facility',
-    location: 'Matara Road, Galle, Southern Province',
-    contact: '+94 91 224 5678',
-    hours: 'Mon – Sat: 8:00 AM – 8:00 PM',
-    highlight: 'Outpatient consultations, routine clinical treatments, minor procedures, and wellness checks.',
-  },
-];
-
-const SPECIALTIES = [
-  { name: 'General Medicine', desc: 'Primary healthcare & routine check-ups' },
-  { name: 'Cardiology', desc: 'Heart care, ECGs & cardiovascular health' },
-  { name: 'Paediatrics', desc: 'Infant, child & adolescent medical care' },
-  { name: 'ENT Specialists', desc: 'Ear, nose, and throat diagnostic treatments' },
-  { name: 'Orthopaedics', desc: 'Bone, joint & musculoskeletal disorders' },
-  { name: 'Dermatology', desc: 'Skin health, allergies & clinical treatments' },
-  { name: 'Ophthalmology', desc: 'Vision assessment & eye treatments' },
-  { name: 'Neurology', desc: 'Nervous system & neurological consultation' },
 ];
 
 const STEPS = [
   {
     num: '01',
     title: 'Find Your Specialist & Branch',
-    desc: 'Search certified medical consultants by specialty, doctor name, or preferred branch in Colombo, Kandy, or Galle.',
+    desc: 'Search the medical directory by specialty, doctor name, or preferred branch in Colombo, Kandy, or Galle.',
   },
   {
     num: '02',
-    title: 'Book a Slot or Visit Walk-In',
-    desc: 'Pick a convenient time slot that fits your schedule, or walk straight into any of our clinic front desks for immediate registration.',
+    title: 'Contact Reception or Visit Walk-In',
+    desc: 'Ask clinic reception to book, cancel or reschedule your appointment. Visit a clinic front desk for patient registration and walk-in assistance.',
   },
   {
     num: '03',
     title: 'Consult & Settle Transparently',
-    desc: 'Meet your doctor, receive expert medical care, review consultation notes, and settle an itemized bill with insurance applied.',
+    desc: 'Meet your doctor, receive medical care, review your appointment history, and settle an itemized bill with clinic reception.',
   },
 ];
 
@@ -126,6 +89,23 @@ export default function LandingPage() {
   const [slideIndex, setSlideIndex] = useState(0);
   const [isPaused, setIsPaused] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [directory, setDirectory] = useState<ClinicDirectory | null>(null);
+  const [directoryError, setDirectoryError] = useState('');
+  const [directoryAttempt, setDirectoryAttempt] = useState(0);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    setDirectoryError('');
+    api.get<ClinicDirectory>('/public/clinic-directory', { signal: controller.signal })
+      .then(({ data }) => { if (!controller.signal.aborted) setDirectory(data); })
+      .catch(error => {
+        if (!controller.signal.aborted) {
+          setDirectoryError(apiErrorMessage(error, 'Clinic information could not be loaded.'));
+        }
+      });
+    return () => controller.abort();
+  }, [directoryAttempt]);
+
   const touchStartX = useRef<number | null>(null);
 
   const photos = clinicPhotos.length > 0 ? clinicPhotos : [];
@@ -214,7 +194,7 @@ export default function LandingPage() {
                   className="landing-btn landing-btn-primary"
                   onClick={() => navigate('/login?tab=register')}
                 >
-                  Sign up
+                  Patient Account Help
                 </button>
               </div>
             )}
@@ -292,7 +272,7 @@ export default function LandingPage() {
                     className="landing-btn landing-btn-lg landing-btn-outline-white"
                     onClick={() => navigate('/login?tab=register')}
                   >
-                    Sign up as Patient
+                    Get Patient Account Help
                   </button>
                 </>
               )}
@@ -328,28 +308,33 @@ export default function LandingPage() {
       {/* ── Key Metrics / Trust Bar ─────────────────────────────── */}
       <section className="landing-metrics-strip">
         <div className="landing-container">
+          {directoryError ? (
+            <div role="alert">
+              {directoryError} <button type="button" onClick={() => setDirectoryAttempt(n => n + 1)}>Retry</button>
+            </div>
+          ) : !directory ? <p role="status">Loading clinic information…</p> : null}
           <div className="landing-metrics-grid">
             <div className="landing-metric-item">
-              <div className="landing-metric-num">3</div>
+              <div className="landing-metric-num">{directory?.branches.length ?? '—'}</div>
               <div className="landing-metric-label">Clinic Branches</div>
-              <div className="landing-metric-sub">Colombo · Kandy · Galle</div>
+              <div className="landing-metric-sub">Current clinic directory</div>
             </div>
             <div className="landing-metric-divider" />
             <div className="landing-metric-item">
-              <div className="landing-metric-num">12+</div>
+              <div className="landing-metric-num">{directory?.specialties.length ?? '—'}</div>
               <div className="landing-metric-label">Medical Disciplines</div>
-              <div className="landing-metric-sub">Verified Consultants</div>
+              <div className="landing-metric-sub">Registered disciplines</div>
             </div>
             <div className="landing-metric-divider" />
             <div className="landing-metric-item">
-              <div className="landing-metric-num">100%</div>
-              <div className="landing-metric-label">Paperless Records</div>
-              <div className="landing-metric-sub">Cross-branch clinical history</div>
+              <div className="landing-metric-num">{directory?.doctor_count ?? '—'}</div>
+              <div className="landing-metric-label">Doctors in Directory</div>
+              <div className="landing-metric-sub">Reception-assisted appointments</div>
             </div>
             <div className="landing-metric-divider" />
             <div className="landing-metric-item">
-              <div className="landing-metric-num">Zero</div>
-              <div className="landing-metric-label">Hidden Medical Costs</div>
+              <div className="landing-metric-num">{directory?.service_count ?? '—'}</div>
+              <div className="landing-metric-label">Catalogue Services</div>
               <div className="landing-metric-sub">Itemized billing & claims</div>
             </div>
           </div>
@@ -373,12 +358,11 @@ export default function LandingPage() {
               <div className="landing-card-icon">🏥</div>
               <h3>For Patients</h3>
               <p>
-                Experience convenient, stress-free healthcare. Search for specialist doctors, reserve appointments
-                online, check in easily for emergency walk-ins, and view all your past consultations and billing
-                receipts in one place.
+                View your appointment and billing history through your patient portal. Clinic reception
+                handles registration, appointment bookings, cancellations, rescheduling and walk-in check-in.
               </p>
               <ul className="landing-check-list">
-                <li>Simple online appointment booking & cancellations</li>
+                <li>Reception-assisted appointment bookings & cancellations</li>
                 <li>One patient account valid in Colombo, Kandy, and Galle</li>
                 <li>Clear itemized bills and transparent insurance claim tracking</li>
               </ul>
@@ -468,26 +452,24 @@ export default function LandingPage() {
             <div className="landing-section-eyebrow">OUR CLINIC NETWORK</div>
             <h2 className="landing-section-title">Convenient Care Across Sri Lanka</h2>
             <p className="landing-section-subtitle">
-              Access trusted specialists, diagnostic laboratories, and emergency care at our 3 central facilities.
+              Find branch details below and contact reception to discuss available appointments and services.
             </p>
           </div>
 
+          {directory && directory.branches.length === 0 && <p>No branches have been added yet.</p>}
           <div className="landing-branches-grid">
-            {BRANCHES.map((b, i) => (
-              <div key={i} className="landing-branch-card">
+            {(directory?.branches ?? []).map(b => (
+              <div key={b.branch_id} className="landing-branch-card">
                 <div className="landing-branch-header">
-                  <div className="landing-branch-tag">{b.tag}</div>
-                  <h3 className="landing-branch-name">{b.name}</h3>
+                  <div className="landing-branch-tag">Clinic branch</div>
+                  <h3 className="landing-branch-name">{b.branch_name}</h3>
                   <div className="landing-branch-location">📍 {b.location}</div>
                 </div>
                 <div className="landing-branch-body">
-                  <p className="landing-branch-highlight">{b.highlight}</p>
+                  <p className="landing-branch-highlight">Contact reception for bookings, opening hours and service availability.</p>
                   <div className="landing-branch-details">
                     <div>
-                      <strong>Hours:</strong> {b.hours}
-                    </div>
-                    <div>
-                      <strong>Telephone:</strong> {b.contact}
+                      <strong>Telephone:</strong> {b.contact_details || 'Contact details not yet provided'}
                     </div>
                   </div>
                 </div>
@@ -504,17 +486,18 @@ export default function LandingPage() {
             <div className="landing-section-eyebrow">COMPREHENSIVE CLINICAL CARE</div>
             <h2 className="landing-section-title">Medical Specialties & Services</h2>
             <p className="landing-section-subtitle">
-              Consult with leading certified physicians and surgeons across major medical fields.
+              Browse the current consultation disciplines in our clinic directory.
             </p>
           </div>
 
+          {directory && directory.specialties.length === 0 && <p>No specialties have been added yet.</p>}
           <div className="landing-specialties-grid">
-            {SPECIALTIES.map((spec, i) => (
-              <div key={i} className="landing-spec-pill">
+            {(directory?.specialties ?? []).map(spec => (
+              <div key={spec.specialty_id} className="landing-spec-pill">
                 <div className="landing-spec-dot" />
                 <div>
-                  <div className="landing-spec-name">{spec.name}</div>
-                  <div className="landing-spec-desc">{spec.desc}</div>
+                  <div className="landing-spec-name">{spec.specialty_name}</div>
+                  <div className="landing-spec-desc">{spec.description || 'Contact reception for details'}</div>
                 </div>
               </div>
             ))}
@@ -551,7 +534,7 @@ export default function LandingPage() {
                       className="landing-btn landing-btn-lg landing-btn-outline-light"
                       onClick={() => navigate('/login?tab=register')}
                     >
-                      Register as New Patient
+                      Patient Registration Help
                     </button>
                   </>
                 )}
@@ -594,7 +577,7 @@ export default function LandingPage() {
               <h4>Access Portal</h4>
               <ul>
                 <li><span className="cursor-pointer text-primary" onClick={() => navigate('/login')}>Patient & Staff Sign In</span></li>
-                <li><span className="cursor-pointer text-primary" onClick={() => navigate('/login?tab=register')}>Patient Registration</span></li>
+                <li><span className="cursor-pointer text-primary" onClick={() => navigate('/login?tab=register')}>Patient Account Help</span></li>
                 {isAuthenticated && <li><span className="cursor-pointer text-primary" onClick={() => navigate('/dashboard')}>Clinical Dashboard</span></li>}
               </ul>
             </div>

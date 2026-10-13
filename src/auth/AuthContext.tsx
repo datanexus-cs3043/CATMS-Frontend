@@ -5,7 +5,7 @@ interface AuthContextType {
   user: AuthUser | null;
   isAuthenticated: boolean;
   isLoading: boolean;
-  login: (username: string, password: string) => Promise<void>;
+  login: (identifier: string, password: string) => Promise<void>;
   logout: () => void;
   /** Merge profile changes into the signed-in user (e.g. after editing My Profile). */
   updateUser: (changes: Partial<AuthUser>) => void;
@@ -46,11 +46,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return () => { cancelled = true; };
   }, []);
 
-  const login = async (username: string, password: string) => {
+  const login = async (identifier: string, password: string) => {
     const version = ++sessionVersion.current;
     setUser(null);
     try {
-      const response = await authService.login({ username, password });
+      const response = await authService.login({ username: identifier.trim(), password });
       // Confirm the browser's cookie session; never retain the returned JWT.
       const session = await authService.getMe().catch(() => {
         throw new Error('Unable to confirm the sign-in session');
@@ -89,7 +89,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return roles.includes(user.role as UserRole);
   };
 
-  const isAdmin    = user?.role === 'admin' || user?.role === 'branch_manager';
+  const isAdmin    = user?.role === 'admin';
   const isCashier  = user?.role === 'receptionist_cashier';
   const isDoctor   = user?.role === 'doctor';
   const isPatient  = user?.role === 'patient';

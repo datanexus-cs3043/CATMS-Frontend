@@ -11,6 +11,7 @@ const ADMIN_NAV: NavSection[] = [
   { section: 'Overview', items: [
     { path: '/dashboard', label: 'Dashboard' },
     { path: '/reports', label: 'Reports' },
+    { path: '/my-profile', label: 'My Profile' },
   ]},
   { section: 'Clinical', items: [
     { path: '/appointments', label: 'Appointments' },
@@ -25,6 +26,7 @@ const ADMIN_NAV: NavSection[] = [
   ]},
   { section: 'Administration', items: [
     { path: '/staff', label: 'Staff' },
+    { path: '/users', label: 'User Management' },
     { path: '/branches', label: 'Branches' },
   ]},
 ];
@@ -32,6 +34,7 @@ const ADMIN_NAV: NavSection[] = [
 const CASHIER_NAV: NavSection[] = [
   { section: 'Front Desk', items: [
     { path: '/dashboard', label: 'Dashboard' },
+    { path: '/my-profile', label: 'My Profile' },
     { path: '/appointments', label: 'Appointments' },
     { path: '/patients', label: 'Patients' },
     { path: '/doctors', label: 'Doctors' },
@@ -82,6 +85,10 @@ export const Sidebar: React.FC<{ open: boolean; onClose: () => void }> = ({ open
     role === 'receptionist_cashier' ? CASHIER_NAV :
     role === 'doctor' ? DOCTOR_NAV :
     role === 'patient' ? PATIENT_NAV : ADMIN_NAV;
+  const visibleSections = sections.map(section => ({
+    ...section,
+    items: section.items.filter(item => item.path !== '/users' || role === 'admin'),
+  })).filter(section => section.items.length > 0);
 
   const isActive = (path: string) => (path === '/dashboard' ? location.pathname === '/dashboard' : location.pathname.startsWith(path));
 
@@ -98,7 +105,7 @@ export const Sidebar: React.FC<{ open: boolean; onClose: () => void }> = ({ open
         </div>
 
         <nav className="sidebar-nav">
-          {sections.map(section => (
+          {visibleSections.map(section => (
             <div key={section.section} className="nav-section">
               <div className="nav-section-title">{section.section}</div>
               {section.items.map(item => (

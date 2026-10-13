@@ -1,7 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
+import axios from 'axios';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
-  patientService, appointmentService, insuranceService,
+  patientService, appointmentService,
   apiErrorMessage, Patient, Appointment, EmergencyContact, InsurancePolicy
 } from '../services/api';
 import { statusBadge } from './Appointments';
@@ -11,8 +12,8 @@ import { useAuth } from '../auth/AuthContext';
 export default function PatientDetails() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { isAdmin, isCashier, isDoctor } = useAuth();
-  const canEdit = isAdmin || isCashier;
+  const { user, isAdmin, isManager, isCashier, isDoctor } = useAuth();
+  const canEdit = isAdmin || isManager || isCashier;
 
   const [patient, setPatient] = useState<Patient | null>(null);
   const [appointments, setAppointments] = useState<Appointment[]>([]);
@@ -21,30 +22,86 @@ export default function PatientDetails() {
   const [activeTab, setActiveTab] = useState<'overview' | 'appointments' | 'insurance' | 'emergency'>('overview');
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
+  const [failureTitle, setFailureTitle] = useState('Patient details unavailable');
+  const [appointmentsError, setAppointmentsError] = useState('');
+  const [insuranceError, setInsuranceError] = useState('');
+  const loadVersion = useRef(0);
   const [contactForm, setContactForm] = useState({ contact_name: '', relationship: '', phone: '' });
+  const [contactSaving, setContactSaving] = useState(false);
+  const [contactError, setContactError] = useState('');
+  const [contactSuccess, setContactSuccess] = useState('');
+  const contactPending = useRef(false);
   const backPath = isDoctor ? '/my-patients' : '/patients';
+  const canManageContacts = canEdit && !!patient && (isAdmin || patient.branch_id === user?.branch_id);
 
   useEffect(() => {
-    if (!id) return;
-    loadAll();
-  }, [id]);
+    setActiveTab('overview');
+    void loadAll();
+    return () => { loadVersion.current += 1; };
+  }, [id, user?.user_id]);
 
   const loadAll = async () => {
+    const version = ++loadVersion.current;
     setIsLoading(true);
+    setPatient(null); setAppointments([]); setEmergencyContacts([]); setPolicies([]);
+    setLoadError(''); setAppointmentsError(''); setInsuranceError('');
+    setContactError(''); setContactSuccess('');
+    setContactForm({ contact_name: '', relationship: '', phone: '' });
+    const patientId = Number(id);
+    if (!Number.isSafeInteger(patientId) || patientId <= 0) {
+      setFailureTitle('Invalid patient link');
+      setLoadError('Select a patient from the patient directory.');
+      setIsLoading(false);
+      return;
+    }
     try {
-      const [p, appts, ec, pol] = await Promise.allSettled([
-        patientService.getById(Number(id)),
-        appointmentService.getAll({ patient_id: Number(id) }),
-        patientService.getEmergencyContacts(Number(id)),
-        patientService.getInsurancePolicies(Number(id)),
+      const [p, appts, pol] = await Promise.allSettled([
+        patientService.getById(patientId),
+        appointmentService.getAll({ patient_id: patientId }),
+        patientService.getInsurancePolicies(patientId),
       ]);
-      if (p.status === 'fulfilled') setPatient(p.value);
-      else setLoadError(apiErrorMessage(p.reason, 'Patient not found.'));
+      if (loadVersion.current !== version) return;
+      if (p.status === 'rejected') throw p.reason;
+      setPatient(p.value);
+      // The patient detail endpoint already returns all emergency contacts.
+      const detail: Patient & { emergency_contacts?: EmergencyContact[] } = p.value;
+      setEmergencyContacts(detail.emergency_contacts || []);
       if (appts.status === 'fulfilled') setAppointments(appts.value);
-      if (ec.status === 'fulfilled') setEmergencyContacts(ec.value);
+      else setAppointmentsError(apiErrorMessage(appts.reason, 'Appointment history is unavailable. Please retry.'));
       if (pol.status === 'fulfilled') setPolicies(pol.value);
-    } catch {}
-    finally { setIsLoading(false); }
+      else setInsuranceError(apiErrorMessage(pol.reason, 'Insurance policies are unavailable. Please retry.'));
+    } catch (err) {
+      if (loadVersion.current !== version) return;
+      const responseStatus = axios.isAxiosError(err) ? err.response?.status : undefined;
+      setFailureTitle(responseStatus === 403 ? 'Access denied' : responseStatus === 404 ? 'Patient not found' : 'Patient details unavailable');
+      setLoadError(apiErrorMessage(err, 'Could not load patient details. Please try again.'));
+    } finally { if (loadVersion.current === version) setIsLoading(false); }
+  };
+
+  const addContact = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!canManageContacts || !patient || contactPending.current) return;
+    const payload = {
+      contact_name: contactForm.contact_name.trim(),
+      relationship: contactForm.relationship.trim(),
+      phone: contactForm.phone.trim(),
+    };
+    setContactError(''); setContactSuccess('');
+    if (!payload.contact_name || !payload.relationship || !payload.phone) {
+      setContactError('Enter the contact name, relationship and phone number.');
+      return;
+    }
+    const version = loadVersion.current;
+    contactPending.current = true; setContactSaving(true);
+    try {
+      const created = await patientService.addEmergencyContact(patient.patient_id, payload);
+      if (loadVersion.current !== version) return;
+      setEmergencyContacts(current => [...current, created]);
+      setContactForm({ contact_name: '', relationship: '', phone: '' });
+      setContactSuccess('Emergency contact added.');
+    } catch (err) {
+      if (loadVersion.current === version) setContactError(apiErrorMessage(err, 'Could not add the emergency contact.'));
+    } finally { contactPending.current = false; setContactSaving(false); }
   };
 
   const calcAge = (dob: string) => {
@@ -65,14 +122,15 @@ export default function PatientDetails() {
   if (!patient) return (
     <div className="empty-state">
       <div className="empty-state-icon"></div>
-      <p className="empty-state-title">{loadError.includes('only access') ? 'Access denied' : 'Patient not found'}</p>
-      <p className="empty-state-desc">{loadError}</p>
+      <p className="empty-state-title">{failureTitle}</p>
+      <p className="empty-state-desc" role="alert">{loadError}</p>
+      <button className="btn btn-ghost" onClick={() => void loadAll()}>Try again</button>
       <button className="btn btn-secondary" onClick={() => navigate(backPath)}>Back</button>
     </div>
   );
 
   const initials = `${patient.first_name[0]}${patient.last_name[0]}`.toUpperCase();
-  const hasInsurance = policies.length > 0;
+  const hasInsurance = !insuranceError && policies.length > 0;
 
   
   return (
@@ -82,7 +140,13 @@ export default function PatientDetails() {
         <button className="btn btn-ghost btn-sm" onClick={() => navigate(backPath)}>
           Back
         </button>
+        <button className="btn btn-ghost btn-sm" disabled={contactSaving} onClick={() => void loadAll()}>Refresh</button>
       </div>
+
+      {(appointmentsError || insuranceError) && <div className="alert alert-warning" role="alert" style={{ marginBottom: 20 }}>
+        Some patient information could not be loaded. The unavailable sections are marked below.
+        <button className="btn btn-ghost btn-sm" disabled={contactSaving} onClick={() => void loadAll()}>Retry loading</button>
+      </div>}
 
       {/* Profile Card */}
       <div className="card" style={{ marginBottom: 20 }}>
@@ -98,7 +162,7 @@ export default function PatientDetails() {
                   <div style={{ display: 'flex', gap: 10, marginTop: 8, flexWrap: 'wrap' }}>
                     <span className="badge badge-primary">{patient.patient_type || 'Regular'}</span>
                     <span className="badge badge-gray">#{patient.patient_id}</span>
-                    {hasInsurance && <span className="badge badge-success">Insured</span>}
+                    {hasInsurance && <span className="badge badge-success">Insurance on file</span>}
                   </div>
                 </div>
                 <div style={{ display: 'flex', gap: 8 }}>
@@ -147,11 +211,14 @@ export default function PatientDetails() {
       </div>
 
       {/* Tabs */}
+      {canEdit && patient.branch_id !== user?.branch_id && !isAdmin && <div className="alert alert-info">
+        This shared record was registered at another branch. You can book a visit at your branch and read personal, emergency-contact and insurance details. Contact the registered branch to change patient or emergency-contact details.
+      </div>}
       <div className="tabs">
         {([
           { key: 'overview', label: 'Overview' },
-          { key: 'appointments', label: `Appointments (${appointments.length})` },
-          { key: 'insurance', label: `Insurance (${policies.length})` },
+          { key: 'appointments', label: `Appointments (${appointmentsError ? 'Unavailable' : appointments.length})` },
+          { key: 'insurance', label: `Insurance (${insuranceError ? 'Unavailable' : policies.length})` },
           { key: 'emergency', label: `Emergency Contacts (${emergencyContacts.length})` },
         ] as const).map(tab => (
           <button
@@ -170,8 +237,8 @@ export default function PatientDetails() {
           <div className="card-body">
             <div className="stats-grid" style={{ marginBottom: 0 }}>
               {[
-                { label: 'Total Appointments', value: appointments.length },
-                { label: 'Insurance Policies', value: policies.length },
+                { label: 'Visible Appointments', value: appointmentsError ? 'Unavailable' : appointments.length },
+                { label: 'Insurance Policies', value: insuranceError ? 'Unavailable' : policies.length },
                 { label: 'Emergency Contacts', value: emergencyContacts.length },
               ].map(s => (
                 <div key={s.label} style={{ background: 'var(--primary-50)', borderRadius: 'var(--radius-md)', padding: '20px 24px', textAlign: 'center' }}>
@@ -186,10 +253,10 @@ export default function PatientDetails() {
 
       {activeTab === 'appointments' && (
         <div className="card">
-          {appointments.length === 0 ? (
+          {appointmentsError ? <div className="card-body"><div className="alert alert-error" role="alert">{appointmentsError}</div></div> : appointments.length === 0 ? (
             <div className="empty-state">
               <p className="empty-state-title">No appointments</p>
-              <p className="empty-state-desc">This patient has no appointment history.</p>
+              <p className="empty-state-desc">No appointments are visible for this patient in your permitted scope.</p>
             </div>
           ) : (
             <div className="table-container">
@@ -216,16 +283,16 @@ export default function PatientDetails() {
 
       {activeTab === 'insurance' && (
         <div className="card">
-          {policies.length === 0 ? (
+          {insuranceError ? <div className="card-body"><div className="alert alert-error" role="alert">{insuranceError}</div></div> : policies.length === 0 ? (
             <div className="empty-state">
               <p className="empty-state-title">No insurance policies</p>
-              <p className="empty-state-desc">Patient has no active insurance policies.</p>
-              {canEdit && <button className="btn btn-primary" onClick={() => navigate('/insurance')}>Add Policy</button>}
+              <p className="empty-state-desc">No insurance policies are on file for this patient.</p>
+              {(isAdmin || isCashier) && <button className="btn btn-primary" onClick={() => navigate('/insurance')}>Add Policy</button>}
             </div>
           ) : (
             <div className="table-container">
               <table>
-                <thead><tr><th>Provider</th><th>Policy #</th><th>Valid From</th><th>Valid To</th><th>Status</th></tr></thead>
+                <thead><tr><th>Provider</th><th>Policy #</th><th>Valid From</th><th>Valid To</th><th>Status</th><th>Treatment Coverage</th></tr></thead>
                 <tbody>
                   {policies.map(pol => (
                     <tr key={pol.policy_id}>
@@ -235,6 +302,15 @@ export default function PatientDetails() {
                       <td>{pol.end_date}</td>
                       <td>
                         <span className={`badge ${pol.status === 'Active' ? 'badge-success' : 'badge-gray'}`}>{pol.status}</span>
+                      </td>
+                      <td>
+                        <details>
+                          <summary>{pol.coverages?.length || 0} coverage rules</summary>
+                          {pol.coverages?.length ? <ul>{pol.coverages.map(coverage => <li key={coverage.coverage_id}>
+                            {coverage.treatment_name || `Treatment #${coverage.treatment_id}`}: {coverage.coverage_percentage}% · Maximum LKR {Number(coverage.maximum_amount).toFixed(2)} per invoice
+                          </li>)}</ul> : <p>No treatment coverage is recorded for this policy.</p>}
+                          <p>Policy dates, status and treatment rules determine eligibility. Coverage does not confirm an approved claim or payment.</p>
+                        </details>
                       </td>
                     </tr>
                   ))}
@@ -247,32 +323,27 @@ export default function PatientDetails() {
 
       {activeTab === 'emergency' && (
         <div className="card">
-          {canEdit && (
+          {contactError && <div className="alert alert-error" role="alert">{contactError}</div>}
+          {contactSuccess && <div className="alert alert-success" role="status">{contactSuccess}</div>}
+          {canManageContacts && (
             <form
               className="card-body"
               style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'flex-end', borderBottom: '1px solid var(--gray-100)' }}
-              onSubmit={async e => {
-                e.preventDefault();
-                try {
-                  await patientService.addEmergencyContact(Number(id), contactForm);
-                  setContactForm({ contact_name: '', relationship: '', phone: '' });
-                  setEmergencyContacts(await patientService.getEmergencyContacts(Number(id)));
-                } catch (err) { alert(apiErrorMessage(err)); }
-              }}
+              onSubmit={addContact}
             >
               <div className="form-group" style={{ flex: '1 1 160px', marginBottom: 0 }}>
                 <label className="form-label">Name *</label>
-                <input className="form-control" required value={contactForm.contact_name} onChange={e => setContactForm({ ...contactForm, contact_name: e.target.value })} />
+                <input className="form-control" required maxLength={150} disabled={contactSaving} value={contactForm.contact_name} onChange={e => setContactForm({ ...contactForm, contact_name: e.target.value })} />
               </div>
               <div className="form-group" style={{ flex: '1 1 120px', marginBottom: 0 }}>
-                <label className="form-label">Relationship</label>
-                <input className="form-control" value={contactForm.relationship} onChange={e => setContactForm({ ...contactForm, relationship: e.target.value })} />
+                <label className="form-label">Relationship *</label>
+                <input className="form-control" required maxLength={100} disabled={contactSaving} value={contactForm.relationship} onChange={e => setContactForm({ ...contactForm, relationship: e.target.value })} />
               </div>
               <div className="form-group" style={{ flex: '1 1 140px', marginBottom: 0 }}>
                 <label className="form-label">Phone *</label>
-                <input className="form-control" required value={contactForm.phone} onChange={e => setContactForm({ ...contactForm, phone: e.target.value })} />
+                <input className="form-control" required maxLength={50} disabled={contactSaving} value={contactForm.phone} onChange={e => setContactForm({ ...contactForm, phone: e.target.value })} />
               </div>
-              <button type="submit" className="btn btn-secondary">+ Add Contact</button>
+              <button type="submit" className="btn btn-secondary" disabled={contactSaving}>{contactSaving ? 'Adding...' : '+ Add Contact'}</button>
             </form>
           )}
           {emergencyContacts.length === 0 ? (

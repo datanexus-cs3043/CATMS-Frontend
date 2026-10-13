@@ -5,6 +5,7 @@ import { ProtectedRoute } from './auth/ProtectedRoute';
 import { Login } from './auth/Login';
 import { Sidebar } from './components/Sidebar';
 import { Navbar } from './components/Navbar';
+import { DialogProvider } from './components/DialogProvider';
 
 // Page Imports
 import Dashboard from './pages/Dashboard';
@@ -26,6 +27,7 @@ import MyAppointments from './pages/Myappointments';
 import MyBills from './pages/MyBills';
 import MyProfile from './pages/MyProfile';
 import MyPatients from './pages/MyPatients';
+import UserManagement from './pages/UserManagement';
 import LandingPage from './pages/LandingPage';
 
 // App layout: sidebar (drawer on small screens), top bar and page content
@@ -55,6 +57,7 @@ export default function App() {
   return (
     <AuthProvider>
       <BrowserRouter>
+        <DialogProvider>
         <Routes>
           {/* Public Landing & Login Routes */}
           <Route path="/" element={<LandingPage />} />
@@ -82,11 +85,7 @@ export default function App() {
             />
             <Route
               path="/my-profile"
-              element={
-                <ProtectedRoute allowedRoles={['doctor', 'patient']}>
-                  <MyProfile />
-                </ProtectedRoute>
-              }
+              element={<MyProfile />}
             />
             <Route
               path="/my-patients"
@@ -198,6 +197,14 @@ export default function App() {
               }
             />
             <Route
+              path="/users"
+              element={
+                <ProtectedRoute allowedRoles={['admin']}>
+                  <UserManagement />
+                </ProtectedRoute>
+              }
+            />
+            <Route
               path="/branches"
               element={
                 <ProtectedRoute allowedRoles={['admin', 'branch_manager']}>
@@ -218,6 +225,7 @@ export default function App() {
           {/* Catch-all fallback */}
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
+        </DialogProvider>
       </BrowserRouter>
     </AuthProvider>
   );

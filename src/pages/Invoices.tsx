@@ -1,6 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { invoiceService, appointmentService, apiErrorMessage, Invoice, Appointment } from '../services/api';
+import { invoiceService, appointmentService, apiErrorMessage, PaymentOutcomeError, Invoice, Appointment } from '../services/api';
+import { useAuth } from '../auth/AuthContext';
 
 export const invoiceStatusBadge = (status: string) => {
   if (status === 'Paid') return <span className="badge badge-success">{status}</span>;
@@ -14,6 +15,8 @@ const money = (n?: number) => `Rs. ${Number(n ?? 0).toLocaleString()}`;
 export default function Invoices() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
+  const { user } = useAuth();
+  const canBill = user?.role === 'admin' || user?.role === 'receptionist_cashier' || user?.role === 'branch_manager';
 
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [billable, setBillable] = useState<Appointment[]>([]);
@@ -22,6 +25,7 @@ export default function Invoices() {
   const [search, setSearch] = useState('');
   const [patientFilter, setPatientFilter] = useState<number | null>(searchParams.get('patient_id') ? Number(searchParams.get('patient_id')) : null);
   const [successMsg, setSuccessMsg] = useState('');
+  const [loadError, setLoadError] = useState('');
 
   const [showPayModal, setShowPayModal] = useState(false);
   const [selectedInv, setSelectedInv] = useState<Invoice | null>(null);
@@ -29,6 +33,10 @@ export default function Invoices() {
   const [payMethod, setPayMethod] = useState('Cash');
   const [paying, setPaying] = useState(false);
   const [payError, setPayError] = useState('');
+  const [paymentNeedsReview, setPaymentNeedsReview] = useState(false);
+  const paymentPending = useRef(false);
+  const generationPending = useRef(false);
+  const loadVersion = useRef(0);
 
   const [showGenerate, setShowGenerate] = useState(false);
   const [generateId, setGenerateId] = useState('');
@@ -37,24 +45,28 @@ export default function Invoices() {
 
   useEffect(() => {
     loadData();
-    if (searchParams.get('new') === '1') {
+    if (searchParams.get('new') === '1' && canBill) {
       setShowGenerate(true);
       setSearchParams({}, { replace: true });
     }
+    return () => { loadVersion.current++; };
   }, []);
 
   const loadData = async () => {
+    const version = ++loadVersion.current;
     setIsLoading(true);
+    setLoadError('');
     try {
       const [invs, completed] = await Promise.all([
         invoiceService.getAll(),
-        appointmentService.getAll({ status: 'Completed' }),
+        canBill ? appointmentService.getAll({ status: 'Completed' }) : Promise.resolve([]),
       ]);
+      if (version !== loadVersion.current) return;
       setInvoices(invs);
       setBillable(completed.filter(a => !a.invoice_id));
-    } catch {
-      /* the page shows an empty state */
-    } finally { setIsLoading(false); }
+    } catch (err) {
+      if (version === loadVersion.current) setLoadError(apiErrorMessage(err, 'Could not load invoices. Please retry.'));
+    } finally { if (version === loadVersion.current) setIsLoading(false); }
   };
 
   const filtered = invoices.filter(inv => {
@@ -76,11 +88,18 @@ export default function Invoices() {
     setPayAmount('');
     setPayMethod('Cash');
     setPayError('');
+    setPaymentNeedsReview(false);
     setShowPayModal(true);
   };
 
   const handlePayment = async () => {
-    if (!selectedInv || !payAmount) return;
+    if (!selectedInv || paymentPending.current || paymentNeedsReview || loadError) return;
+    const amount = Number(payAmount);
+    if (!payAmount.trim() || !Number.isFinite(amount) || amount <= 0 || amount > Number(selectedInv.balance)) {
+      setPayError('Enter a positive amount no greater than the outstanding balance.');
+      return;
+    }
+    paymentPending.current = true;
     setPaying(true);
     setPayError('');
     try {
@@ -90,12 +109,19 @@ export default function Invoices() {
       setTimeout(() => setSuccessMsg(''), 5000);
       loadData();
     } catch (err) {
+      if (err instanceof PaymentOutcomeError) setPaymentNeedsReview(true);
       setPayError(apiErrorMessage(err, 'Payment failed'));
-    } finally { setPaying(false); }
+    } finally { paymentPending.current = false; setPaying(false); }
   };
 
   const handleGenerate = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (generationPending.current || loadError) return;
+    if (!billable.some(appointment => appointment.appointment_id === Number(generateId))) {
+      setGenerateError('Select a completed, uninvoiced appointment.');
+      return;
+    }
+    generationPending.current = true;
     setGenerating(true);
     setGenerateError('');
     try {
@@ -105,22 +131,23 @@ export default function Invoices() {
       navigate(`/invoices/${inv.invoice_id}`);
     } catch (err) {
       setGenerateError(apiErrorMessage(err, 'Could not generate the invoice.'));
-    } finally { setGenerating(false); }
+    } finally { generationPending.current = false; setGenerating(false); }
   };
 
   return (
     <div style={{ animation: 'fadeIn 0.3s ease' }}>
+      {loadError && <div className="alert alert-error" role="alert">{loadError}<button className="btn btn-ghost btn-sm" onClick={() => void loadData()}>Retry</button></div>}
       {successMsg && <div className="alert alert-success">{successMsg}</div>}
 
       <div className="stats-grid" style={{ marginBottom: 24 }}>
         {[
           { label: 'Total Billed', value: money(totalBilled), color: '#3f89cc' },
           { label: 'Collected from Patients', value: money(totalCollected), color: '#1d6fb8' },
-          { label: 'Covered by Insurance', value: money(totalInsurance), color: '#155a96' },
+          { label: 'Insurance Approved (not cash)', value: money(totalInsurance), color: '#155a96' },
           { label: 'Outstanding Balances', value: money(totalBalance), color: '#c2372f' },
         ].map(s => (
           <div key={s.label} className="stat-card">
-            <div className="stat-value" style={{ color: s.color }}>{s.value}</div>
+            <div className="stat-value" style={{ color: s.color }}>{loadError ? 'Unavailable' : isLoading ? '…' : s.value}</div>
             <div className="stat-label">{s.label}</div>
           </div>
         ))}
@@ -146,9 +173,11 @@ export default function Invoices() {
             <option>Partially Paid</option>
             <option>Unpaid</option>
           </select>
-          <button className="btn btn-primary" onClick={() => { setGenerateError(''); setShowGenerate(true); }}>
-            Create Invoice {billable.length > 0 && <span className="badge" style={{ background: 'rgba(255,255,255,0.25)', color: 'white' }}>{billable.length}</span>}
-          </button>
+          {canBill && (
+            <button className="btn btn-primary" onClick={() => { setGenerateError(''); setShowGenerate(true); }}>
+              Create Invoice {billable.length > 0 && <span className="badge" style={{ background: 'rgba(255,255,255,0.25)', color: 'white' }}>{billable.length}</span>}
+            </button>
+          )}
         </div>
       </div>
 
@@ -157,7 +186,7 @@ export default function Invoices() {
           <div style={{ padding: 24 }}>
             {[1, 2, 3].map(i => <div key={i} className="skeleton" style={{ height: 52, marginBottom: 8, borderRadius: 'var(--radius)' }} />)}
           </div>
-        ) : filtered.length === 0 ? (
+        ) : loadError ? <div className="card-body">Invoice data is unavailable. Use Retry above.</div> : filtered.length === 0 ? (
           <div className="empty-state">
             <p className="empty-state-title">No invoices found</p>
           </div>
@@ -196,7 +225,7 @@ export default function Invoices() {
                     <td onClick={e => e.stopPropagation()}>
                       <div style={{ display: 'flex', gap: 6 }}>
                         <button className="btn btn-secondary btn-sm" onClick={() => navigate(`/invoices/${inv.invoice_id}`)}>View</button>
-                        {Number(inv.balance) > 0 && (
+                        {canBill && Number(inv.balance) > 0 && (
                           <button className="btn btn-primary btn-sm" onClick={() => openPay(inv)}>Pay</button>
                         )}
                       </div>
@@ -251,7 +280,7 @@ export default function Invoices() {
             </div>
             <div className="modal-footer">
               <button className="btn btn-ghost" onClick={() => setShowPayModal(false)}>Cancel</button>
-              <button className="btn btn-primary" onClick={handlePayment} disabled={paying || !payAmount || Number(payAmount) <= 0}>
+              <button className="btn btn-primary" onClick={handlePayment} disabled={paymentNeedsReview || paying || !payAmount || Number(payAmount) <= 0}>
                 {paying ? <><span className="spinner" style={{ width: 14, height: 14, borderWidth: 2 }} /> Processing...</> : 'Record Payment'}
               </button>
             </div>
@@ -269,7 +298,7 @@ export default function Invoices() {
             <form onSubmit={handleGenerate}>
               <div className="modal-body">
                 <div className="alert alert-info">
-                  Invoices are generated from the treatments recorded on a completed appointment. If the patient has an active policy, an insurance claim for covered treatments is created automatically.
+                  Invoices are generated from the treatments recorded on a completed appointment. Insurance claims are filed separately from the invoice details screen; approval does not record an insurer payment.
                 </div>
                 {generateError && <div className="alert alert-error">{generateError}</div>}
                 {billable.length === 0 ? (

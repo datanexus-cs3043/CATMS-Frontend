@@ -86,12 +86,13 @@ export default function DoctorDetails() {
                     ))}
                   </div>
                 </div>
-                <button
+                {!isPatient && <button
                   className="btn btn-primary"
-                  onClick={() => navigate(isPatient ? `/my-appointments?doctor_id=${doctor.doctor_id}` : `/appointments?doctor_id=${doctor.doctor_id}`)}
+                  onClick={() => navigate(`/appointments?doctor_id=${doctor.doctor_id}`)}
                 >
                   Book Appointment
-                </button>
+                </button>}
+                {isPatient && <p className="text-sm text-gray-600">Contact the clinic to book or change an appointment with this doctor.</p>}
                 {user?.role === 'admin' && <button className="btn btn-secondary" onClick={() => setEditing(true)}>Edit doctor profile</button>}
               </div>
 

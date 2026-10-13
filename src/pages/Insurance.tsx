@@ -1,14 +1,19 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   insuranceService, patientService, treatmentService, apiErrorMessage,
   InsuranceClaim, InsurancePolicy, InsuranceProvider, InsuranceCoverage, Patient, Treatment
 } from '../services/api';
 import { useAuth } from '../auth/AuthContext';
+import { useDialog } from '../components/DialogProvider';
 
 export default function Insurance() {
-  const { isAdmin, isCashier } = useAuth();
-  const canEdit = isAdmin || isCashier;
+  const { user, isAdmin, isCashier, isManager } = useAuth();
+  const { confirmAction, requestInput, showMessage } = useDialog();
+  const canEdit = isAdmin || isCashier || isManager;
+  const mutationPending = useRef(false);
+  const loadVersion = useRef(0);
+  const coverageVersion = useRef(0);
   const navigate = useNavigate();
   const [treatments, setTreatments] = useState<Treatment[]>([]);
   const [message, setMessage] = useState('');
@@ -23,6 +28,11 @@ export default function Insurance() {
   const [providers, setProviders] = useState<InsuranceProvider[]>([]);
   const [patients, setPatients] = useState<Patient[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
+  const [claimsUnavailable, setClaimsUnavailable] = useState(false);
+  const [coverageLoading, setCoverageLoading] = useState(false);
+  const [coverageUnavailable, setCoverageUnavailable] = useState(false);
+  const [updatingClaim, setUpdatingClaim] = useState<number | null>(null);
   const [activeTab, setActiveTab] = useState<'claims' | 'policies' | 'providers'>('claims');
   const [filterStatus, setFilterStatus] = useState('');
   const [showPolicyModal, setShowPolicyModal] = useState(false);
@@ -31,35 +41,52 @@ export default function Insurance() {
   });
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
+  const writablePatients = canEdit ? patients.filter(patient => isAdmin || (user?.branch_id != null && patient.branch_id === user.branch_id)) : [];
+  const canEditCoverage = canEdit && !!coveragePolicy && (isAdmin || (user?.branch_id != null && coveragePolicy.branch_id === user.branch_id));
 
-  useEffect(() => { loadData(); }, []);
+  useEffect(() => { void loadData(); return () => { loadVersion.current++; coverageVersion.current++; }; }, [canEdit]);
 
-  const loadData = async () => {
-    setIsLoading(true);
+  const loadData = async (background = false) => {
+    const version = ++loadVersion.current;
+    if (!background) setIsLoading(true);
+    setLoadError('');
     try {
       const [c, pol, prov, pts, txs] = await Promise.allSettled([
         insuranceService.getClaims(),
         insuranceService.getPolicies(),
         insuranceService.getProviders(),
-        patientService.getAll(),
-        treatmentService.getAll(),
+        canEdit ? patientService.getAll() : Promise.resolve([]),
+        canEdit ? treatmentService.getAll() : Promise.resolve([]),
       ]);
-      if (txs.status === 'fulfilled') setTreatments(txs.value);
-      if (c.status === 'fulfilled') setClaims(c.value);
-      if (pol.status === 'fulfilled') setPolicies(pol.value);
-      if (prov.status === 'fulfilled') setProviders(prov.value);
-      if (pts.status === 'fulfilled') setPatients(pts.value);
-    } catch {} finally { setIsLoading(false); }
+      if (version !== loadVersion.current) return;
+      setTreatments(txs.status === 'fulfilled' ? txs.value : []);
+      setClaims(c.status === 'fulfilled' ? c.value : []);
+      setPolicies(pol.status === 'fulfilled' ? pol.value : []);
+      setProviders(prov.status === 'fulfilled' ? prov.value : []);
+      setPatients(pts.status === 'fulfilled' ? pts.value : []);
+      setClaimsUnavailable(c.status === 'rejected');
+      const failures = [c, pol, prov, pts, txs].filter(result => result.status === 'rejected');
+      if (failures.length) setLoadError('Some insurance data could not be loaded. Displayed counts may be incomplete; retry before making changes.');
+    } catch (err) {
+      if (version === loadVersion.current) setLoadError(apiErrorMessage(err, 'Insurance data could not be loaded.'));
+    } finally { if (version === loadVersion.current) setIsLoading(false); }
   };
 
   const filteredClaims = claims.filter(c => !filterStatus || c.status === filterStatus);
 
   const totalClaimed = claims.reduce((s, c) => s + Number(c.claim_amount), 0);
-  const totalApproved = claims.reduce((s, c) => s + Number(c.approved_amount), 0);
+  const totalApproved = claims.reduce((s, c) => s + (c.status === 'Approved' ? Number(c.approved_amount) : 0), 0);
   const pendingCount = claims.filter(c => c.status === 'Pending').length;
 
   const handleCreatePolicy = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (mutationPending.current || loadError) return;
+    if (!writablePatients.some(patient => patient.patient_id === Number(policyForm.patient_id))) {
+      setError('Select a patient registered at a branch you can manage.');
+      return;
+    }
+    if (policyForm.start_date > policyForm.end_date) { setError('The end date must not precede the start date.'); return; }
+    mutationPending.current = true;
     setSubmitting(true);
     setError('');
     try {
@@ -73,55 +100,75 @@ export default function Insurance() {
       });
       setShowPolicyModal(false);
       setPolicyForm({ patient_id: '', provider_id: '', policy_number: '', start_date: '', end_date: '', status: 'Active' });
-      setMessage('Policy created. Add its coverage terms so claims can be calculated.');
-      loadData();
+      setMessage('Policy created. Record the coverage terms for staff to review when filing claims.');
+      await loadData(true);
     } catch (err) {
       setError(apiErrorMessage(err, 'Failed to create policy'));
-    } finally { setSubmitting(false); }
+    } finally { mutationPending.current = false; setSubmitting(false); }
   };
 
   const handleUpdateClaimStatus = async (claim: InsuranceClaim, newStatus: string) => {
-    let approved: number | undefined;
-    if (newStatus === 'Approved') {
-      const input = prompt(`Approved amount for CLM-${claim.claim_id} (claimed Rs. ${Number(claim.claim_amount).toLocaleString()}):`, String(claim.claim_amount));
-      if (input === null) return;
-      approved = Number(input);
-      if (!(approved >= 0)) { alert('Enter a valid amount.'); return; }
-    } else if (!confirm(`Reject claim CLM-${claim.claim_id}?`)) {
-      return;
-    }
+    if (mutationPending.current || loadError) return;
+    mutationPending.current = true;
+    setUpdatingClaim(claim.claim_id);
     try {
-      await insuranceService.updateClaim(claim.claim_id, { status: newStatus, approved_amount: approved });
-      setMessage(`Claim CLM-${claim.claim_id} ${newStatus.toLowerCase()}. The invoice balance has been updated.`);
-      loadData();
+      let approved: number | undefined;
+      if (newStatus === 'Approved') {
+        const input = await requestInput(`Approved amount for CLM-${claim.claim_id} (claimed Rs. ${Number(claim.claim_amount).toLocaleString()}):`, String(claim.claim_amount), {
+          title: 'Approve insurance claim', inputLabel: 'Approved amount (Rs.)', confirmLabel: 'Approve claim',
+          validate: value => value.trim() && Number.isFinite(Number(value)) && Number(value) >= 0 && Number(value) <= Number(claim.claim_amount) ? null : 'Enter an amount between zero and the claimed amount.',
+        });
+        if (input === null) return;
+        approved = Number(input);
+      } else if (!await confirmAction(`Reject claim CLM-${claim.claim_id}?`, { title: 'Reject insurance claim', confirmLabel: 'Reject claim', danger: true })) {
+        return;
+      }
+      await insuranceService.updateClaim(claim.claim_id, { status: newStatus, approved_amount: approved ?? 0 });
+      setMessage(`Claim CLM-${claim.claim_id} ${newStatus.toLowerCase()}. Approval is not a payment and does not reduce the invoice balance.`);
+      await loadData(true);
     } catch (err) {
-      alert(apiErrorMessage(err));
-    }
+      await showMessage(apiErrorMessage(err), { title: 'Could not update claim' });
+    } finally { mutationPending.current = false; setUpdatingClaim(null); }
   };
 
   const handleCreateProvider = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (mutationPending.current || loadError) return;
+    mutationPending.current = true;
+    setSubmitting(true);
     setError('');
     try {
       await insuranceService.createProvider(providerForm);
       setShowProviderModal(false);
       setProviderForm({ provider_name: '', contact_details: '' });
-      loadData();
+      setMessage('Insurance provider added.');
+      await loadData(true);
     } catch (err) {
       setError(apiErrorMessage(err, 'Failed to add provider'));
-    }
+    } finally { mutationPending.current = false; setSubmitting(false); }
   };
 
   const openCoverage = async (pol: InsurancePolicy) => {
+    const version = ++coverageVersion.current;
     setCoveragePolicy(pol);
+    setCoverages([]);
+    setCoverageLoading(true);
+    setCoverageUnavailable(false);
     setError('');
     setCoverageForm({ treatment_id: '', coverage_percentage: '', maximum_amount: '' });
-    try { setCoverages(await insuranceService.getCoverageByPolicy(pol.policy_id)); } catch { setCoverages([]); }
+    try {
+      const terms = await insuranceService.getCoverageByPolicy(pol.policy_id);
+      if (version === coverageVersion.current) setCoverages(terms);
+    } catch (err) {
+      if (version === coverageVersion.current) { setCoverageUnavailable(true); setError(apiErrorMessage(err, 'Coverage terms could not be loaded.')); }
+    } finally { if (version === coverageVersion.current) setCoverageLoading(false); }
   };
 
   const handleAddCoverage = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!coveragePolicy) return;
+    if (!coveragePolicy || !canEditCoverage || mutationPending.current || coverageLoading || coverageUnavailable) return;
+    mutationPending.current = true;
+    setSubmitting(true);
     setError('');
     try {
       await insuranceService.addCoverage(coveragePolicy.policy_id, {
@@ -133,12 +180,14 @@ export default function Insurance() {
       setCoverages(await insuranceService.getCoverageByPolicy(coveragePolicy.policy_id));
     } catch (err) {
       setError(apiErrorMessage(err, 'Failed to add coverage'));
-    }
+    } finally { mutationPending.current = false; setSubmitting(false); }
   };
 
   return (
     <div style={{ animation: 'fadeIn 0.3s ease' }}>
       {message && <div className="alert alert-success">{message}</div>}
+      {loadError && <div className="alert alert-error" role="alert">{loadError} <button className="btn btn-secondary btn-sm" onClick={() => void loadData()}>Retry loading</button></div>}
+      <p style={{ fontSize: 13, color: 'var(--gray-500)', marginBottom: 16 }}>Approved amounts record the insurer's decision, not money received. Pending and approved claims do not settle an invoice.</p>
       {/* Stats */}
       <div className="stats-grid" style={{ marginBottom: 24 }}>
         {[
@@ -150,7 +199,7 @@ export default function Insurance() {
           <div key={s.label} className="stat-card">
             <div className="stat-icon" style={{ background: `${s.color}18`, color: s.color }}>
             </div>
-            <div className="stat-value" style={{ color: s.color }}>{s.value}</div>
+            <div className="stat-value" style={{ color: s.color }}>{isLoading || loadError ? '—' : s.value}</div>
             <div className="stat-label">{s.label}</div>
           </div>
         ))}
@@ -186,7 +235,7 @@ export default function Insurance() {
               </div>
             ) : filteredClaims.length === 0 ? (
               <div className="empty-state">
-                <p className="empty-state-title">No claims found</p>
+                <p className="empty-state-title">{claimsUnavailable ? 'Claims are unavailable' : 'No claims found'}</p>
               </div>
             ) : (
               <div className="table-container">
@@ -227,10 +276,10 @@ export default function Insurance() {
                           <td>
                             {claim.status === 'Pending' && (
                               <div style={{ display: 'flex', gap: 6 }}>
-                                <button className="btn btn-primary btn-sm" onClick={() => handleUpdateClaimStatus(claim, 'Approved')}>
-                                  Approve
+                                <button className="btn btn-primary btn-sm" disabled={updatingClaim !== null || !!loadError} onClick={() => handleUpdateClaimStatus(claim, 'Approved')}>
+                                  {updatingClaim === claim.claim_id ? 'Updating...' : 'Approve'}
                                 </button>
-                                <button className="btn btn-danger btn-sm" onClick={() => handleUpdateClaimStatus(claim, 'Rejected')}>
+                                <button className="btn btn-danger btn-sm" disabled={updatingClaim !== null || !!loadError} onClick={() => handleUpdateClaimStatus(claim, 'Rejected')}>
                                   Reject
                                 </button>
                               </div>
@@ -252,7 +301,7 @@ export default function Insurance() {
         <>
           {canEdit && (
             <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 16 }}>
-              <button className="btn btn-primary" onClick={() => { setShowPolicyModal(true); setError(''); }}>
+              <button className="btn btn-primary" disabled={isLoading || !!loadError || writablePatients.length === 0} onClick={() => { setShowPolicyModal(true); setError(''); }}>
                 New Policy
               </button>
             </div>
@@ -260,7 +309,7 @@ export default function Insurance() {
           <div className="card">
             {policies.length === 0 ? (
               <div className="empty-state">
-                <p className="empty-state-title">No policies found</p>
+                <p className="empty-state-title">{isLoading ? 'Loading policies...' : loadError ? 'Policies may be unavailable' : 'No policies found'}</p>
               </div>
             ) : (
               <div className="table-container">
@@ -291,7 +340,7 @@ export default function Insurance() {
       {/* The backend allows only admins to create providers. */}
       {activeTab === 'providers' && isAdmin && (
         <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 16 }}>
-          <button className="btn btn-primary" onClick={() => { setError(''); setShowProviderModal(true); }}>+ Add Provider</button>
+          <button className="btn btn-primary" disabled={isLoading || !!loadError} onClick={() => { setError(''); setShowProviderModal(true); }}>+ Add Provider</button>
         </div>
       )}
       {activeTab === 'providers' && (
@@ -345,7 +394,7 @@ export default function Insurance() {
               </div>
               <div className="modal-footer">
                 <button type="button" className="btn btn-ghost" onClick={() => setShowProviderModal(false)}>Cancel</button>
-                <button type="submit" className="btn btn-primary">Add Provider</button>
+                <button type="submit" className="btn btn-primary" disabled={submitting}>{submitting ? 'Adding...' : 'Add Provider'}</button>
               </div>
             </form>
           </div>
@@ -361,15 +410,15 @@ export default function Insurance() {
             </div>
             <div className="modal-body">
               <p style={{ fontSize: 13, color: 'var(--gray-500)', marginBottom: 12 }}>
-                For each covered treatment the insurer reimburses the percentage below, up to the maximum per invoice line. Claims are calculated automatically when an invoice is generated.
+                MedSync applies each treatment’s percentage and maximum once per invoice, combining repeated treatment lines. Unlisted treatments have no eligible coverage. Approval remains manual and does not record insurer settlement or reduce the ledger balance. Annual benefit limits are not modeled.
               </p>
               {error && <div className="alert alert-error">{error}</div>}
               {coverages.length === 0 ? (
-                <p style={{ color: 'var(--gray-400)', fontSize: 13 }}>No treatments covered yet.</p>
+                <p style={{ color: 'var(--gray-400)', fontSize: 13 }}>{coverageLoading ? 'Loading coverage terms...' : coverageUnavailable ? 'Coverage terms are unavailable.' : 'No treatments covered yet.'}</p>
               ) : (
                 <div className="table-container" style={{ marginBottom: 16 }}>
                   <table>
-                    <thead><tr><th>Treatment</th><th>Coverage %</th><th>Maximum</th></tr></thead>
+                    <thead><tr><th>Treatment</th><th>Coverage %</th><th>Maximum per invoice</th></tr></thead>
                     <tbody>
                       {coverages.map(c => (
                         <tr key={c.coverage_id}>
@@ -382,7 +431,10 @@ export default function Insurance() {
                   </table>
                 </div>
               )}
-              {canEdit && (
+              {!canEditCoverage && canEdit && <p style={{ fontSize: 13, color: 'var(--gray-500)' }}>
+                These shared coverage terms are read-only here. Changes are managed by the patient's registered branch or an administrator.
+              </p>}
+              {canEditCoverage && (
                 <form onSubmit={handleAddCoverage} style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'flex-end' }}>
                   <div className="form-group" style={{ flex: '2 1 200px', marginBottom: 0 }}>
                     <label className="form-label">Treatment *</label>
@@ -398,10 +450,10 @@ export default function Insurance() {
                     <input type="number" min={1} max={100} className="form-control" required value={coverageForm.coverage_percentage} onChange={e => setCoverageForm({ ...coverageForm, coverage_percentage: e.target.value })} />
                   </div>
                   <div className="form-group" style={{ flex: '1 1 120px', marginBottom: 0 }}>
-                    <label className="form-label">Max (Rs.) *</label>
+                    <label className="form-label">Maximum per invoice (Rs.) *</label>
                     <input type="number" min={1} className="form-control" required value={coverageForm.maximum_amount} onChange={e => setCoverageForm({ ...coverageForm, maximum_amount: e.target.value })} />
                   </div>
-                  <button type="submit" className="btn btn-primary">Add</button>
+                  <button type="submit" className="btn btn-primary" disabled={submitting || coverageLoading || coverageUnavailable}>{submitting ? 'Adding...' : 'Add'}</button>
                 </form>
               )}
             </div>
@@ -428,7 +480,7 @@ export default function Insurance() {
                     <label className="form-label">Patient *</label>
                     <select className="form-control" required value={policyForm.patient_id} onChange={e => setPolicyForm({...policyForm, patient_id: e.target.value})}>
                       <option value="">Select patient...</option>
-                      {patients.map(p => <option key={p.patient_id} value={p.patient_id}>{p.first_name} {p.last_name}</option>)}
+                      {writablePatients.map(p => <option key={p.patient_id} value={p.patient_id}>{p.first_name} {p.last_name}</option>)}
                     </select>
                   </div>
                   <div className="form-group">
@@ -460,13 +512,13 @@ export default function Insurance() {
                   </div>
                   <div className="form-group">
                     <label className="form-label">End Date *</label>
-                    <input type="date" className="form-control" required value={policyForm.end_date} onChange={e => setPolicyForm({...policyForm, end_date: e.target.value})} />
+                    <input type="date" className="form-control" required min={policyForm.start_date || undefined} value={policyForm.end_date} onChange={e => setPolicyForm({...policyForm, end_date: e.target.value})} />
                   </div>
                 </div>
               </div>
               <div className="modal-footer">
                 <button type="button" className="btn btn-ghost" onClick={() => setShowPolicyModal(false)}>Cancel</button>
-                <button type="submit" className="btn btn-primary" disabled={submitting}>
+                <button type="submit" className="btn btn-primary" disabled={submitting || writablePatients.length === 0}>
                   {submitting ? <><span className="spinner" style={{ width: 14, height: 14, borderWidth: 2 }} /> Creating...</> : 'Create Policy'}
                 </button>
               </div>

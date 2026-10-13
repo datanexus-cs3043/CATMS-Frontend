@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
+  <title>MedSync</title>
+  <rect x="2" y="2" width="60" height="60" rx="16" fill="#ffffff" stroke="#1d6fb8" stroke-width="4" />
+  <path d="M32 18v28M18 32h28" fill="none" stroke="#1d6fb8" stroke-width="10" stroke-linecap="round" />
+</svg>
