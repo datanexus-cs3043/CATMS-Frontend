@@ -66,7 +66,6 @@ export interface Staff {
   staff_type: string;
   role: string;
   username?: string;
-  branch_name?: string;
 }
 
 export interface Doctor {
@@ -116,7 +115,6 @@ export interface Patient {
   contact_details?: string;
   email?: string;
   address?: string;
-  user_id?: number | null;
   branch_name?: string;
   emergency_contacts?: EmergencyContact[];
 }
@@ -210,9 +208,7 @@ export interface Invoice {
   status: string;
   patient_id?: number;
   patient_name?: string;
-  doctor_id?: number;
   doctor_name?: string;
-  branch_name?: string;
   appointment_date?: string;
 }
 
@@ -507,7 +503,7 @@ export const branchService = {
 
 // ── Staff Service ──────────────────────────────────────────────────────────────
 export const staffService = {
-  getAll: (params?: { branch_id?: number; role?: string }) => get<Staff[]>('/staff', params as Record<string, unknown>),
+  getAll: () => get<Staff[]>('/staff'),
   create: (data: Partial<Staff>) => post<Staff>('/staff', data),
   update: async (id: number, data: Partial<Staff>) => {
     const { csrf_token } = await authService.getCsrfToken();
@@ -584,8 +580,7 @@ export const doctorService = {
 
 // ── Treatment Service ─────────────────────────────────────────────────────────
 export const treatmentService = {
-  getAll: (params?: { category_id?: number; search?: string }) =>
-    get<Treatment[]>('/treatments', params as Record<string, unknown>),
+  getAll: () => get<Treatment[]>('/treatments'),
   getCategories: () => get<TreatmentCategory[]>('/treatment-categories'),
   createCategory: (data: { category_name: string; description?: string | null }) =>
     post<TreatmentCategory>('/treatment-categories', data),
@@ -704,9 +699,9 @@ export const invoiceService = {
   getPayments: (id: number) => get<Payment[]>(`/invoices/${id}/patient-payments`),
   getAllPayments: () => get<Payment[]>('/patient-payments'),
   /** Doctor compensation. The API names the id/amount `payment_id`/`amount`; map them to this model. */
-  getDoctorPayments: async (params?: { doctor_id?: number }) => {
+  getDoctorPayments: async () => {
     const rows = await get<Array<Omit<DoctorPayment, 'doctor_payment_id' | 'doctor_payment'> & { payment_id: number; amount: number }>>(
-      '/doctor-payments', params as Record<string, unknown>);
+      '/doctor-payments');
     return rows.map(({ payment_id, amount, ...rest }): DoctorPayment => ({ ...rest, doctor_payment_id: payment_id, doctor_payment: amount }));
   },
 };
