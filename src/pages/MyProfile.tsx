@@ -222,7 +222,6 @@ export default function MyProfile() {
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 6 }}>
             {(doctor.specialties || []).map(s => <span className="tag" key={s.specialty_id}>{s.specialty_name}</span>)}
           </div>
-          {doctor.bio && <><p style={{ ...labelStyle, marginTop: 16 }}>About</p><p>{doctor.bio}</p></>}
         </div>}
         <div style={{ padding: '20px 28px' }}>
           {!editing ? <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 20 }}>

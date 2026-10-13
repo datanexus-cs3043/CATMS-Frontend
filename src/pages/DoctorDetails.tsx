@@ -96,7 +96,6 @@ export default function DoctorDetails() {
                 {user?.role === 'admin' && <button className="btn btn-secondary" onClick={() => setEditing(true)}>Edit doctor profile</button>}
               </div>
 
-              {doctor.bio && <p className="mt-4 text-base text-gray-600 leading-[1.6]">{doctor.bio}</p>}
 
               <div className="divider" />
               <div className="info-grid">

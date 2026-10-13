@@ -78,11 +78,7 @@ export interface Doctor {
   branch_name?: string;
   email?: string;
   contact_details?: string;
-  first_name?: string;
-  last_name?: string;
-  bio?: string;
   specialties?: Specialty[];
-  specialty_ids?: number[];
 }
 
 export type DoctorCreateRequest = Pick<Doctor, 'staff_id' | 'doctor_name' | 'doctor_license_number'>;
@@ -181,8 +177,6 @@ export interface Appointment {
   treatment_name?: string;
   rescheduled_to?: number | null;
   invoice_id?: number | null;
-  payment_status?: string | null;
-  invoice_balance?: number | null;
 }
 
 export interface AppointmentTreatment {
