@@ -65,9 +65,6 @@ export const Navbar: React.FC<{ onMenu?: () => void }> = ({ onMenu }) => {
       {user?.role === 'receptionist_cashier' && (
         <button className="btn btn-primary btn-sm" onClick={() => navigate('/appointments?new=1')}>New appointment</button>
       )}
-      {user?.role === 'patient' && !location.pathname.startsWith('/my-appointments') && (
-        <button className="btn btn-primary btn-sm" onClick={() => navigate('/my-appointments?book=1')}>Book appointment</button>
-      )}
 
       <div ref={ref} style={{ position: 'relative' }}>
         <button className="user-menu-btn" onClick={() => setOpen(!open)} aria-haspopup="menu" aria-expanded={open}>

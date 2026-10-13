@@ -379,6 +379,14 @@ api.interceptors.response.use(
       error.config.headers.delete('X-CSRF-Token');
       return api.request(error.config);
     }
+    // The hosted database sleeps when idle and answers 503 while it wakes: retry reads only.
+    const wakeRetries: number = error.config?._wakeRetries ?? 0;
+    if (error.response?.status === 503 && error.config && wakeRetries < 2 &&
+        (error.config.method || 'get').toLowerCase() === 'get') {
+      error.config._wakeRetries = wakeRetries + 1;
+      await new Promise(resolve => setTimeout(resolve, 1500 * (wakeRetries + 1)));
+      return api.request(error.config);
+    }
     throw error;
   }
 );
