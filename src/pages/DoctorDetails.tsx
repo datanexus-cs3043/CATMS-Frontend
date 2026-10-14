@@ -74,7 +74,7 @@ export default function DoctorDetails() {
               {doctor.doctor_name.split(' ').filter(w => w !== 'Dr.').map(w => w[0]).join('').slice(0, 2).toUpperCase()}
             </div>
             <div className="flex-1 min-w-60">
-              <div className="flex justify-between flex-wrap gap-3">
+              <div className="flex justify-between items-start flex-wrap gap-3">
                 <div>
                   <h2 className="text-3xl text-gray-900 m-0">{doctor.doctor_name}</h2>
                   <div className="text-sm text-gray-400 mt-1.5 font-mono">License: {doctor.doctor_license_number}</div>
@@ -96,7 +96,6 @@ export default function DoctorDetails() {
                 {user?.role === 'admin' && <button className="btn btn-secondary" onClick={() => setEditing(true)}>Edit doctor profile</button>}
               </div>
 
-              {doctor.bio && <p className="mt-4 text-base text-gray-600 leading-[1.6]">{doctor.bio}</p>}
 
               <div className="divider" />
               <div className="info-grid">

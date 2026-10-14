@@ -242,7 +242,7 @@ export default function AppointmentDetails() {
                 <div className="info-item"><span className="info-label">Date</span><span className="info-value">{appt.appointment_date}</span></div>
                 <div className="info-item"><span className="info-label">Time</span><span className="info-value">{appt.start_time?.slice(0, 5)} – {appt.end_time?.slice(0, 5)}</span></div>
                 <div className="info-item"><span className="info-label">Branch</span><span className="info-value">{appt.branch_name}</span></div>
-                <div className="info-item"><span className="info-label">Booked By</span><span className="info-value">{appt.created_by}</span></div>
+                <div className="info-item"><span className="info-label">Booked By</span><span className="info-value">{appt.created_by_name || appt.created_by}</span></div>
                 {appt.treatment_name && (
                   <div className="info-item"><span className="info-label">Booked Service</span><span className="info-value">{appt.treatment_name}</span></div>
                 )}
@@ -407,12 +407,15 @@ export default function AppointmentDetails() {
                   <p className="text-gray-400 text-sm mb-3">
                     {isCompleted ? 'No invoice generated yet.' : 'An invoice is generated after the appointment is completed.'}
                   </p>
-                  {canBill && isCompleted && unbilled && !relatedError && (
+                  {/* The backend only lets staff of the appointment's branch issue its invoice. */}
+                  {canBill && isCompleted && unbilled && !relatedError && (appt.branch_id === user?.branch_id ? (
                     <button className="btn btn-primary" disabled={busy}
                       onClick={() => run(() => invoiceService.generate(apptId), 'Invoice generated from the recorded treatments.')}>
                       Generate Invoice
                     </button>
-                  )}
+                  ) : (
+                    <p className="text-gray-400 text-sm">Invoices are issued by staff of {appt.branch_name || "the appointment's branch"}.</p>
+                  ))}
                 </div>
               )}
             </div>

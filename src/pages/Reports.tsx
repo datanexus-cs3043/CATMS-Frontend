@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   reportsService,
   branchService,
+  apiErrorMessage,
   Branch,
   BranchAppointmentSummary,
   DoctorRevenueReport,
@@ -173,11 +174,8 @@ export default function Reports() {
       const scope = !isAdmin ? `Assigned branch #${user?.branch_id}` : appliedFilter.branch_id
         ? `Branch #${appliedFilter.branch_id}${branch ? ` (${branch.branch_name})` : ''}` : 'All branches';
       if (isCurrent()) setLoadedReport({ type, filter: appliedFilter, owner: reportOwner, scope });
-    } catch (err: any) {
-      if (isCurrent()) {
-        const detail = err?.response?.data?.detail;
-        setError(typeof detail === 'string' ? detail : 'Could not retrieve report from the database.');
-      }
+    } catch (err: unknown) {
+      if (isCurrent()) setError(apiErrorMessage(err, 'Could not retrieve report from the database.'));
     } finally {
       if (isCurrent()) setIsLoading(false);
     }
@@ -256,7 +254,8 @@ export default function Reports() {
   ];
 
   // ── Executive SVG Donut Helper ───────────────────────────────────────────────
-  const renderSvgDonut = (segments: { label: string; value: number; color: string }[], centerLabel: string, centerVal: string) => {
+  const renderSvgDonut = (segments: { label: string; value: number; color: string }[], centerLabel: string, centerVal: string,
+    formatValue: (value: number) => string = String) => {
     const total = segments.reduce((sum, s) => sum + s.value, 0);
     if (total === 0) return null;
 
@@ -289,7 +288,8 @@ export default function Reports() {
             })}
           </svg>
           <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', textAlign: 'center' }}>
-            <span style={{ fontSize: 16, fontWeight: 700, color: 'var(--gray-900)', lineHeight: 1.1 }}>{centerVal}</span>
+            {/* Long money values must stay inside the ring. */}
+            <span style={{ fontSize: centerVal.length > 9 ? 11 : 16, fontWeight: 700, color: 'var(--gray-900)', lineHeight: 1.1 }}>{centerVal}</span>
             <span style={{ fontSize: 10, color: 'var(--gray-500)', textTransform: 'uppercase', fontWeight: 600, marginTop: 2 }}>{centerLabel}</span>
           </div>
         </div>
@@ -304,7 +304,7 @@ export default function Reports() {
                   <span style={{ color: 'var(--gray-700)', fontWeight: 500 }}>{seg.label}</span>
                 </div>
                 <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                  <span style={{ fontWeight: 700, color: 'var(--gray-900)' }}>{seg.value}</span>
+                  <span style={{ fontWeight: 700, color: 'var(--gray-900)' }}>{formatValue(seg.value)}</span>
                   <span style={{ color: 'var(--gray-400)', fontSize: 11, width: 36, textAlign: 'right' }}>({pct}%)</span>
                 </div>
               </div>
@@ -1565,11 +1565,11 @@ export default function Reports() {
                     <>
                       <div className="stats-grid" style={{ marginBottom: 20 }}>
                         {[
-                          { label: 'Total Billed', value: `Rs. ${Number(insuranceData.invoiced_amount).toLocaleString()}`, color: '#3f89cc' },
-                          { label: 'Insurance Approved (not cash)', value: `Rs. ${Number(insuranceData.insurance_approved_amount).toLocaleString()}`, color: '#1d6fb8' },
-                          { label: 'Patient Payments (net)', value: `Rs. ${Number(insuranceData.patient_paid_amount).toLocaleString()}`, color: '#155a96' },
+                          { label: 'Total Billed', value: formatLKR(insuranceData.invoiced_amount), color: '#3f89cc' },
+                          { label: 'Insurance Approved (not cash)', value: formatLKR(insuranceData.insurance_approved_amount), color: '#1d6fb8' },
+                          { label: 'Patient Payments (net)', value: formatLKR(insuranceData.patient_paid_amount), color: '#155a96' },
                           { label: 'Estimated Patient Exposure', value: formatLKR(estimatedPatientExposure), color: '#b86e0c' },
-                          { label: 'Outstanding Balance', value: `Rs. ${Number(insuranceData.outstanding_amount).toLocaleString()}`, color: '#c2372f' },
+                          { label: 'Outstanding Balance', value: formatLKR(insuranceData.outstanding_amount), color: '#c2372f' },
                         ].map(s => (
                           <div key={s.label} className="stat-card" style={{ borderTop: `3px solid ${s.color}` }}>
                             <div className="stat-value" style={{ color: s.color }}>{s.value}</div>
@@ -1603,7 +1603,8 @@ export default function Reports() {
                                       { label: 'Estimated Patient Exposure', value: exposure, color: '#b86e0c' },
                                     ],
                                     'Billed Value',
-                                    formatLKR(billed)
+                                    formatLKR(billed),
+                                    formatLKR
                                   )}
                                 </div>
 
