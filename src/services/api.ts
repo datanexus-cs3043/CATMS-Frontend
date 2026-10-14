@@ -449,6 +449,8 @@ export const userService = {
   list: () => get<User[]>('/users'),
   resetPassword: (userId: number) =>
     post<PasswordResetResponse>(`/users/${userId}/reset-password`, {}),
+  delete: (userId: number) =>
+    del<{ message?: string }>(`/users/${userId}`),
 };
 
 // ── Generic CRUD helpers ──────────────────────────────────────────────────────

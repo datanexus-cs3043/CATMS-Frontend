@@ -1,12 +1,15 @@
 import React, { useEffect, useState, useRef } from 'react';
+import { useDialog } from '../components/DialogProvider';
 import { KeyRound } from 'lucide-react';
 import { apiErrorMessage, userService } from '../services/api';
 import type { User } from '../services/api';
 
 export default function UserManagement() {
+  const { confirmAction } = useDialog();
   const [users, setUsers] = useState<User[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [resettingId, setResettingId] = useState<number | null>(null);
+  const [deletingId, setDeletingId] = useState<number | null>(null);
   const [error, setError] = useState('');
   const [loadError, setLoadError] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
@@ -64,6 +67,33 @@ export default function UserManagement() {
         setResettingId(null);
         setSelectedUser(null);
       }
+    }
+  };
+
+  const deleteUser = async (user: User) => {
+    if (resetPending.current || isLoading || loadError) return;
+    const displayName = `${user.first_name || ''} ${user.last_name || ''}`.trim() || user.username;
+    if (!await confirmAction(`Delete ${displayName}'s user account? This action cannot be undone.`, {
+      title: 'Delete user account',
+      confirmLabel: 'Delete account',
+      danger: true,
+    })) return;
+    resetPending.current = true;
+    const version = loadVersion.current;
+    setDeletingId(user.user_id);
+    setError('');
+    setSuccessMsg('');
+    try {
+      const response = await userService.delete(user.user_id);
+      if (loadVersion.current === version) {
+        setUsers(current => current.filter(item => item.user_id !== user.user_id));
+        setSuccessMsg(response.message || `${displayName}'s user account was deleted successfully.`);
+      }
+    } catch (err) {
+      if (loadVersion.current === version) setError(apiErrorMessage(err, 'Unable to delete the user account.'));
+    } finally {
+      resetPending.current = false;
+      if (loadVersion.current === version) setDeletingId(null);
     }
   };
 
@@ -134,9 +164,18 @@ export default function UserManagement() {
                         className="btn btn-secondary btn-sm"
                         type="button"
                         onClick={() => { if (!resetPending.current) setSelectedUser(user); }}
-                        disabled={resettingId !== null}
+                        disabled={resettingId !== null || deletingId !== null}
                       >
                         {resettingId === user.user_id ? 'Resetting...' : 'Reset Password'}
+                      </button>
+                      <button
+                        className="btn btn-danger btn-sm"
+                        type="button"
+                        onClick={() => void deleteUser(user)}
+                        disabled={resettingId !== null || deletingId !== null}
+                        style={{ marginLeft: 8 }}
+                      >
+                        {deletingId === user.user_id ? 'Deleting...' : 'Delete'}
                       </button>
                     </td>
                   </tr>
