@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { useDialog } from '../components/DialogProvider';
 import { KeyRound } from 'lucide-react';
 import { apiErrorMessage, userService } from '../services/api';

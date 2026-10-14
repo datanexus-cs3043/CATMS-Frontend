@@ -375,7 +375,7 @@ api.interceptors.response.use(
       error.config.headers.delete('X-CSRF-Token');
       return api.request(error.config);
     }
-    // The hosted database sleeps when idle and answers 503 while it wakes: retry reads only.
+    // Transient backend unavailability can recover; never replay writes automatically.
     const wakeRetries: number = error.config?._wakeRetries ?? 0;
     if (error.response?.status === 503 && error.config && wakeRetries < 2 &&
         (error.config.method || 'get').toLowerCase() === 'get') {
