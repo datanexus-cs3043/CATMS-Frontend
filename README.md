@@ -4,6 +4,18 @@ React and TypeScript web client for **MedSync / CATMS**, a Clinic Appointment an
 
 [Web application](https://www.medsync.live) · [Primary API](https://backend.medsync.live/api/health) · [Backend repository](https://github.com/datanexus-cs3043/CATMS-Backend) · [Project documentation](https://github.com/datanexus-cs3043/project-docs)
 
+## Team Contributions
+
+Work was collaborative across the frontend, backend and database. The following summarizes each member's contribution areas; these are shared areas of work, not exclusive ownership of entire modules.
+
+| Member | Contribution areas |
+| --- | --- |
+| Shashika | Pydantic request/response schemas and validation; backend foundation and patient/doctor/appointment integration; cross-layer integration corrections; Docker, CI/CD, deployment, hosting and project documentation |
+| Nayanajith Bandara | Authentication, authorization and security; account/role integration and backend API structure; staff, branch and treatment APIs; billing/insurance/report API integration and stored procedures |
+| Tharushi | Frontend foundation and shared components; patient, staff, treatment and profile interfaces; appointment lifecycle endpoints; insurance, consultation, claim and payment table contributions |
+| Adithya | Invoice, insurance, branch-management and patient-facing interfaces; report presentation; database procedures, integrity constraints and appointment/treatment/billing/insurance triggers |
+| Sithuka | Account/branch/staff SQL and appointment status/treatment bridge; invoice-generation routine and patient-receipt ledger; report views and functions; dashboard and frontend API/CSRF integration |
+
 ## Functional Overview
 
 - Public clinic directory with branches, doctors, specialties and services.
@@ -125,18 +137,6 @@ The primary web application is [www.medsync.live](https://www.medsync.live) on V
 [Render](https://catms-backend-fa6t.onrender.com/api/health) is a backend standby, not automatic failover. Switching API hosts requires an explicit configuration/rebuild and session/CORS verification. Never put database credentials, JWT keys or CSRF secrets in `VITE_` variables: their values are public in the compiled client.
 
 Before release, verify the intended frontend/backend revisions and database schema together: login/session, all five roles and denied actions, appointment-to-invoice/receipt flows, insurance handling, report filters/totals and browser print layout. Type checking, builds and a healthy API alone do not establish those environment-specific results.
-
-## Team Contributions
-
-Work was collaborative across the frontend, backend and database. The following summarizes each member's contribution areas; these are shared areas of work, not exclusive ownership of entire modules.
-
-| Member | Contribution areas |
-| --- | --- |
-| Shashika | Database schema, table relationships and SQL organization; backend foundation and patient/doctor/appointment integration; validation and cross-layer corrections; Docker, CI/CD, deployment, hosting and project documentation |
-| Nayanajith Bandara | Authentication, authorization and security; account/role integration and backend API structure; staff, branch and treatment APIs; billing/insurance/report API integration and stored procedures |
-| Tharushi | Frontend foundation and shared components; patient, staff, treatment and profile interfaces; appointment lifecycle endpoints; insurance, consultation, claim and payment table contributions |
-| Adithya | Invoice, insurance, branch-management and patient-facing interfaces; report presentation; database procedures, integrity constraints and appointment/treatment/billing/insurance triggers |
-| Sithuka | Account/branch/staff SQL and appointment status/treatment bridge; invoice-generation routine and patient-receipt ledger; report views and functions; dashboard and frontend API/CSRF integration |
 
 ## Central Documentation
 
