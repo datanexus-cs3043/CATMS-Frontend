@@ -130,13 +130,11 @@ docker build --build-arg VITE_API_BASE_URL=https://backend.medsync.live/api -t c
 
 To run both containers, place this repository beside `CATMS-Backend` and follow its Compose instructions; Compose still uses an external database and the same frontend build-time configuration rules.
 
-## Hosting and Verification
+## Hosting and Deployment
 
-The primary web application is [www.medsync.live](https://www.medsync.live) on Vercel, using [backend.medsync.live](https://backend.medsync.live) on Azure. Set `VITE_API_BASE_URL=https://backend.medsync.live/api` in the frontend build environment and rebuild after changes. `vercel.json` supplies client-route rewrites; deployment configuration and access are managed separately from the source files.
+The primary web application is [www.medsync.live](https://www.medsync.live) on Vercel, using [backend.medsync.live](https://backend.medsync.live) on Azure. The API base URL is a Vite build-time setting (`VITE_API_BASE_URL`); `vercel.json` supplies client-route rewrites.
 
-[Render](https://catms-backend-fa6t.onrender.com/api/health) is a backend standby, not automatic failover. Switching API hosts requires an explicit configuration/rebuild and session/CORS verification. Never put database credentials, JWT keys or CSRF secrets in `VITE_` variables: their values are public in the compiled client.
-
-Before release, verify the intended frontend/backend revisions and database schema together: login/session, all five roles and denied actions, appointment-to-invoice/receipt flows, insurance handling, report filters/totals and browser print layout. Type checking, builds and a healthy API alone do not establish those environment-specific results.
+[Render](https://catms-backend-fa6t.onrender.com/api/health) is a separately deployed backend standby. The application has no automatic failover between API hosts. Vite embeds `VITE_` settings in the client bundle; database credentials and authentication secrets belong to the backend configuration.
 
 ## Central Documentation
 
