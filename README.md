@@ -128,15 +128,15 @@ Before release, verify the intended frontend/backend revisions and database sche
 
 ## Team Contributions
 
-Contributions span both application repositories and the database; areas overlap and include implementation, integration and review.
+Work was collaborative across the frontend, backend and database. The following summarizes each member's contribution areas; these are shared areas of work, not exclusive ownership of entire modules.
 
 | Member | Contribution areas |
 | --- | --- |
-| Shashika | Real-login/doctor/profile integration, cross-layer validation and integration corrections; backend schemas and SQL organization; Docker setup, CI/CD, Azure/Vercel deployment and project documentation |
-| Nayanajith Bandara | Authentication/security and account/role API integration; clinical/administrative, billing, insurance and report APIs; frontend staff/application integration corrections |
-| Tharushi | Initial React/Vite/Docker frontend setup and shared components; login/landing/profile, patient/detail, staff/treatment and initial report interfaces; appointment lifecycle endpoints and database contributions |
-| Adithya | Invoice/detail, insurance and patient-facing pages; navigation/dashboard styling, branch management and report presentation; database procedures and integrity triggers |
-| Sithuka | Dashboard/doctor/branch/appointment components, API/insurance/CSRF integration and integration restoration; treatment bridge, invoice generation, receipt ledger and report SQL |
+| Shashika | Database schema, table relationships and SQL organization; backend foundation and patient/doctor/appointment integration; validation and cross-layer corrections; Docker, CI/CD, deployment, hosting and project documentation |
+| Nayanajith Bandara | Authentication, authorization and security; account/role integration and backend API structure; staff, branch and treatment APIs; billing/insurance/report API integration and stored procedures |
+| Tharushi | Frontend foundation and shared components; patient, staff, treatment and profile interfaces; appointment lifecycle endpoints; insurance, consultation, claim and payment table contributions |
+| Adithya | Invoice, insurance, branch-management and patient-facing interfaces; report presentation; database procedures, integrity constraints and appointment/treatment/billing/insurance triggers |
+| Sithuka | Account/branch/staff SQL and appointment status/treatment bridge; invoice-generation routine and patient-receipt ledger; report views and functions; dashboard and frontend API/CSRF integration |
 
 ## Central Documentation
 
